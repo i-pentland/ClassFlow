@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import {
-  getIframeLaunchContextFromSearch,
+  getIframeLaunchContextFromLocation,
   isGoogleClassroomAddonLaunch,
   isStudentWorkReviewContext,
 } from "@/features/iframe-context/iframe-context.service";
@@ -33,7 +33,7 @@ export function AssignmentPage() {
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
   const [patterns, setPatterns] = useState<ResolvedAnalysisPattern[]>([]);
   const [acknowledgedPatternIds, setAcknowledgedPatternIds] = useState<string[]>([]);
-  const launchContext = getIframeLaunchContextFromSearch(location.search);
+  const launchContext = getIframeLaunchContextFromLocation(location.pathname, location.search);
 
   useEffect(() => {
     setIsAnalyzing(false);

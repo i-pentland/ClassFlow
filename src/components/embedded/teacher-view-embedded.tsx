@@ -11,12 +11,14 @@ type TeacherViewEmbeddedProps = {
   classCards?: DashboardClassCard[];
   classRoom?: ClassRoom;
   assignments?: AssignmentListItem[];
+  reviewHref?: string;
 };
 
 export function TeacherViewEmbedded({
   classCards = [],
   classRoom,
   assignments = [],
+  reviewHref,
 }: TeacherViewEmbeddedProps) {
   const primaryClass = classRoom ?? classCards[0]?.classRoom ?? null;
   const primaryAssignment = assignments[0] ?? null;
@@ -77,9 +79,10 @@ export function TeacherViewEmbedded({
             <Button asChild variant="accent" className="w-full justify-center">
               <Link
                 to={
-                  primaryClass && primaryAssignment
+                  reviewHref ??
+                  (primaryClass && primaryAssignment
                     ? `/class/${primaryClass.id}/assignment/${primaryAssignment.id}?source=classroom_addon&iframeType=student_work_review&courseId=${encodeURIComponent(primaryClass.sourceCourseRef)}&assignmentId=${encodeURIComponent(primaryAssignment.sourceAssignmentRef)}`
-                    : "/dashboard"
+                    : "/dashboard")
                 }
               >
                 Open student work review

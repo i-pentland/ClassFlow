@@ -5,7 +5,7 @@ import { AppShell } from "@/components/layouts/app-shell";
 import { ClassCard } from "@/components/class-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getIframeLaunchContextFromSearch, isTeacherViewContext } from "@/features/iframe-context/iframe-context.service";
+import { getIframeLaunchContextFromLocation, isTeacherViewContext } from "@/features/iframe-context/iframe-context.service";
 import { getLastLmsProviderIssue } from "@/services/lms/lms.provider";
 import type { DashboardClassCard } from "@/types/view-models";
 
@@ -13,7 +13,7 @@ export function DashboardPage() {
   const classes = useLoaderData() as DashboardClassCard[];
   const location = useLocation();
   const providerIssue = getLastLmsProviderIssue();
-  const launchContext = getIframeLaunchContextFromSearch(location.search);
+  const launchContext = getIframeLaunchContextFromLocation(location.pathname, location.search);
 
   if (isTeacherViewContext(launchContext)) {
     return (

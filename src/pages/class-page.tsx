@@ -9,7 +9,7 @@ import { AppShell } from "@/components/layouts/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getIframeLaunchContextFromSearch, isTeacherViewContext } from "@/features/iframe-context/iframe-context.service";
+import { getIframeLaunchContextFromLocation, isTeacherViewContext } from "@/features/iframe-context/iframe-context.service";
 import type { LearningObjective } from "@/types/domain";
 import type { ClassPageData } from "@/types/view-models";
 
@@ -19,7 +19,7 @@ export function ClassPage() {
   const loaderData = useLoaderData() as ClassPageData | null;
   const classRoom = loaderData?.classRoom;
   const assignments = loaderData?.assignments ?? [];
-  const launchContext = getIframeLaunchContextFromSearch(location.search);
+  const launchContext = getIframeLaunchContextFromLocation(location.pathname, location.search);
   const [activeObjectives, setActiveObjectives] = useState<LearningObjective[]>(() => loaderData?.activeObjectives ?? []);
   const [availableObjectives, setAvailableObjectives] = useState<LearningObjective[]>(
     () => loaderData?.availableObjectives ?? [],

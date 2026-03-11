@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 
-import { getIframeLaunchContextFromSearch } from "@/features/iframe-context/iframe-context.service";
+import { getIframeLaunchContextFromLocation } from "@/features/iframe-context/iframe-context.service";
 
 function formatIframeType(iframeType: string) {
   return iframeType.split("_").join(" ");
@@ -12,7 +12,7 @@ export function EmbeddedModeBanner() {
   }
 
   const location = useLocation();
-  const launchContext = getIframeLaunchContextFromSearch(location.search);
+  const launchContext = getIframeLaunchContextFromLocation(location.pathname, location.search);
 
   if (launchContext.launchSource !== "google_classroom_addon") {
     return null;

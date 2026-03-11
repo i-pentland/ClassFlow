@@ -147,6 +147,63 @@ export const classflowService = {
     };
   },
 
+  async getClassPageDataForLaunchContext(launchContext: IframeLaunchContext): Promise<ClassPageData | null> {
+    const resolvedContext = await lmsProvider.resolveAddonContext({
+      iframeType: launchContext.iframeType,
+      lmsCourseId: launchContext.lmsCourseId,
+      lmsAssignmentId: launchContext.lmsAssignmentId,
+      lmsSubmissionId: launchContext.lmsSubmissionId,
+      lmsAttachmentId: launchContext.lmsAttachmentId,
+    });
+
+    if (!resolvedContext.lmsCourseId) {
+      return null;
+    }
+
+    const classes = await lmsProvider.getClasses();
+    const matchedClass = classes.find(
+      (classRoom) =>
+        classRoom.sourceCourseRef === resolvedContext.lmsCourseId || classRoom.id === resolvedContext.lmsCourseId,
+    );
+
+    return matchedClass ? this.getClassPageData(matchedClass.id) : null;
+  },
+
+  async getAssignmentPageDataForLaunchContext(launchContext: IframeLaunchContext): Promise<AssignmentPageData | null> {
+    const resolvedContext = await lmsProvider.resolveAddonContext({
+      iframeType: launchContext.iframeType,
+      lmsCourseId: launchContext.lmsCourseId,
+      lmsAssignmentId: launchContext.lmsAssignmentId,
+      lmsSubmissionId: launchContext.lmsSubmissionId,
+      lmsAttachmentId: launchContext.lmsAttachmentId,
+    });
+
+    const classes = await lmsProvider.getClasses();
+
+    for (const classRoom of classes) {
+      if (
+        resolvedContext.lmsCourseId &&
+        classRoom.sourceCourseRef !== resolvedContext.lmsCourseId &&
+        classRoom.id !== resolvedContext.lmsCourseId
+      ) {
+        continue;
+      }
+
+      const assignments = await lmsProvider.getAssignmentsByClass(classRoom.id);
+      const matchedAssignment = assignments.find(
+        (assignment) =>
+          assignment.sourceAssignmentRef === resolvedContext.lmsAssignmentId ||
+          assignment.id === resolvedContext.lmsAssignmentId,
+      );
+
+      if (matchedAssignment) {
+        return this.getAssignmentPageData(classRoom.id, matchedAssignment.id);
+      }
+    }
+
+    return null;
+  },
+
   async analyzeAssignment(
     classId: string,
     assignmentId: string,

@@ -1,8 +1,11 @@
 import { createBrowserRouter, redirect } from "react-router-dom";
 
 import { ProtectedRoute } from "@/components/auth/protected-route";
-import { getIframeLaunchContextFromSearch } from "@/features/iframe-context/iframe-context.service";
+import { getIframeLaunchContextFromUrl } from "@/features/iframe-context/iframe-context.service";
 import { getCurrentSession, getReadableAuthError } from "@/lib/auth";
+import { AddonAttachmentDiscoveryPage } from "@/pages/addon-attachment-discovery-page";
+import { AddonStudentWorkReviewPage } from "@/pages/addon-student-work-review-page";
+import { AddonTeacherViewPage } from "@/pages/addon-teacher-view-page";
 import { AuthCallbackPage } from "@/pages/auth-callback-page";
 import { AssignmentPage } from "@/pages/assignment-page";
 import { AuthPage } from "@/pages/auth-page";
@@ -37,7 +40,7 @@ function withRouteContext(request: Request, fallbackIds: { courseId?: string; as
     params.set("assignmentId", fallbackIds.assignmentId);
   }
 
-  return getIframeLaunchContextFromSearch(`?${params.toString()}`);
+  return getIframeLaunchContextFromUrl(new URL(`${url.origin}${url.pathname}?${params.toString()}`));
 }
 
 export const router = createBrowserRouter([
@@ -61,8 +64,9 @@ export const router = createBrowserRouter([
         element: <DashboardPage />,
         loader: async ({ request }) => {
           await requireAuthenticatedSession();
-          const search = new URL(request.url).search;
-          const launchContext = getIframeLaunchContextFromSearch(search);
+          const url = new URL(request.url);
+          const search = url.search;
+          const launchContext = getIframeLaunchContextFromUrl(url);
           const launchTarget = await classflowService.resolveLaunchTarget(launchContext);
 
           if (launchTarget) {
@@ -70,6 +74,53 @@ export const router = createBrowserRouter([
           }
 
           return classflowService.getDashboardClasses();
+        },
+      },
+      {
+        path: "/addon/attachment-discovery",
+        element: <AddonAttachmentDiscoveryPage />,
+        loader: async () => {
+          await requireAuthenticatedSession();
+          return classflowService.getDashboardClasses();
+        },
+      },
+      {
+        path: "/addon/teacher-view",
+        element: <AddonTeacherViewPage />,
+        loader: async ({ request }) => {
+          await requireAuthenticatedSession();
+          const url = new URL(request.url);
+          const launchContext = getIframeLaunchContextFromUrl(url);
+          const [dashboardClasses, classPageData, assignmentData] = await Promise.all([
+            classflowService.getDashboardClasses(),
+            classflowService.getClassPageDataForLaunchContext(launchContext),
+            classflowService.getAssignmentPageDataForLaunchContext(launchContext),
+          ]);
+
+          const reviewHref = assignmentData
+            ? `/addon/student-work-review?source=classroom_addon&courseId=${encodeURIComponent(
+                assignmentData.classRoom.sourceCourseRef,
+              )}&assignmentId=${encodeURIComponent(assignmentData.assignment.sourceAssignmentRef)}${
+                launchContext.lmsSubmissionId ? `&submissionId=${encodeURIComponent(launchContext.lmsSubmissionId)}` : ""
+              }`
+            : "/addon/student-work-review?source=classroom_addon";
+
+          return {
+            dashboardClasses,
+            classPageData,
+            reviewHref,
+          };
+        },
+      },
+      {
+        path: "/addon/student-work-review",
+        element: <AddonStudentWorkReviewPage />,
+        loader: async ({ request }) => {
+          await requireAuthenticatedSession();
+          const url = new URL(request.url);
+          const launchContext = getIframeLaunchContextFromUrl(url);
+
+          return classflowService.getAssignmentPageDataForLaunchContext(launchContext);
         },
       },
       {

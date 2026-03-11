@@ -5,15 +5,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 const launchExamples = [
   {
     label: "Teacher view iframe",
-    to: "/dashboard?source=classroom_addon&iframeType=teacher_view&courseId=gc-course-1",
+    to: "/addon/teacher-view?source=classroom_addon&courseId=gc-course-1",
   },
   {
     label: "Student work review iframe",
-    to: "/class/c1/assignment/a1?source=classroom_addon&iframeType=student_work_review&courseId=gc-course-1&assignmentId=gc-assignment-1&submissionId=gc-sub-1",
+    to: "/addon/student-work-review?source=classroom_addon&courseId=gc-course-1&assignmentId=gc-assignment-1&submissionId=gc-sub-1",
   },
   {
     label: "Attachment discovery iframe",
-    to: "/dashboard?source=classroom_addon&iframeType=attachment_discovery&courseId=gc-course-1",
+    to: "/addon/attachment-discovery?source=classroom_addon&courseId=gc-course-1",
   },
 ];
 
