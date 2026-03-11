@@ -4,6 +4,7 @@ import { PatternCard } from "@/components/pattern-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { SubmissionReference } from "@/services/lms/lms.types";
 import type { LearningObjective } from "@/types/domain";
 import type { ResolvedAnalysisPattern } from "@/types/view-models";
 
@@ -11,10 +12,15 @@ type StudentWorkReviewPanelProps = {
   assignmentTitle: string;
   assignmentSummary: string;
   submissionCount: number;
+  submissionReferences: SubmissionReference[];
+  selectedSubmission: SubmissionReference | null;
+  submissionLoadIssue?: string | null;
   targetedObjectives: LearningObjective[];
   patterns: ResolvedAnalysisPattern[];
   hasAnalyzed: boolean;
   isAnalyzing: boolean;
+  canAnalyze?: boolean;
+  analysisNotice?: string | null;
   onAnalyze: () => Promise<void>;
   onDismissPattern: (patternId: string) => void;
   acknowledgedPatternIds: string[];
@@ -25,10 +31,15 @@ export function StudentWorkReviewPanel({
   assignmentTitle,
   assignmentSummary,
   submissionCount,
+  submissionReferences,
+  selectedSubmission,
+  submissionLoadIssue,
   targetedObjectives,
   patterns,
   hasAnalyzed,
   isAnalyzing,
+  canAnalyze = true,
+  analysisNotice = null,
   onAnalyze,
   onDismissPattern,
   acknowledgedPatternIds,
@@ -58,6 +69,21 @@ export function StudentWorkReviewPanel({
               <p className="mt-2 font-semibold">{submissionCount}</p>
             </div>
 
+            {selectedSubmission ? (
+              <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50/70 p-4">
+                <p className="text-sm font-semibold text-amber-900">Current submission context</p>
+                <p className="mt-2 text-sm text-amber-900/80">
+                  {selectedSubmission.studentName} · {selectedSubmission.contentPreview}
+                </p>
+              </div>
+            ) : null}
+
+            {submissionLoadIssue ? (
+              <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50/70 p-4 text-sm leading-6 text-amber-900/80">
+                {submissionLoadIssue}
+              </div>
+            ) : null}
+
             <div>
               <p className="text-sm font-semibold text-foreground">Targeted objectives</p>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -78,7 +104,13 @@ export function StudentWorkReviewPanel({
                 ClassFlow reviews recurring patterns across the current work set and keeps the
                 summary observational for teacher review.
               </p>
-              <Button onClick={onAnalyze} disabled={isAnalyzing} variant="accent" className="w-full justify-center">
+              {analysisNotice ? <p className="text-sm leading-6 text-slate-300">{analysisNotice}</p> : null}
+              <Button
+                onClick={onAnalyze}
+                disabled={isAnalyzing || !canAnalyze}
+                variant="accent"
+                className="w-full justify-center"
+              >
                 {isAnalyzing ? (
                   <>
                     <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -91,6 +123,32 @@ export function StudentWorkReviewPanel({
             </div>
           </CardContent>
         </Card>
+
+        {submissionReferences.length > 0 ? (
+          <Card className="border-white/80 bg-white/92">
+            <CardHeader>
+              <CardTitle className="text-lg">Submission metadata in view</CardTitle>
+              <CardDescription>
+                Real Google Classroom submission metadata is available for this assignment. Raw work
+                content is not stored here.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {submissionReferences.slice(0, 6).map((submission) => (
+                <div
+                  key={submission.id}
+                  className="flex items-center justify-between rounded-xl border border-border bg-secondary/20 px-3 py-3 text-sm"
+                >
+                  <div>
+                    <p className="font-medium">{submission.studentName}</p>
+                    <p className="mt-1 text-muted-foreground">{submission.contentPreview}</p>
+                  </div>
+                  <Badge variant="outline">{submission.sourceSubmissionRef}</Badge>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        ) : null}
 
         <div className="space-y-4">
           {!hasAnalyzed ? (

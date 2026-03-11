@@ -6,15 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getIframeLaunchContextFromLocation } from "@/features/iframe-context/iframe-context.service";
 import { classflowService } from "@/services/classflowService";
-import type { AssignmentPageData, ResolvedAnalysisPattern } from "@/types/view-models";
-
-type AddonStudentWorkReviewLoaderData = {
-  assignmentData: AssignmentPageData | null;
-  assignmentContextIssue: string | null;
-};
+import type { ResolvedAnalysisPattern, StudentWorkReviewPageData } from "@/types/view-models";
 
 export function AddonStudentWorkReviewPage() {
-  const { assignmentData, assignmentContextIssue } = useLoaderData() as AddonStudentWorkReviewLoaderData;
+  const { assignmentData, assignmentContextIssue, submissionReferences, submissionLoadIssue, selectedSubmission } =
+    useLoaderData() as StudentWorkReviewPageData;
   const location = useLocation();
   const launchContext = getIframeLaunchContextFromLocation(location.pathname, location.search);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -46,8 +42,17 @@ export function AddonStudentWorkReviewPage() {
   }
 
   const { classRoom, assignment, targetedObjectives } = assignmentData;
+  const canAnalyze = submissionReferences.some((submission) => submission.contentType === "text");
+  const analysisNotice =
+    canAnalyze || submissionReferences.length === 0
+      ? null
+      : "Submission metadata is available, but raw submission text analysis is not implemented for this Google Classroom path yet.";
 
   const handleAnalyze = async () => {
+    if (!canAnalyze) {
+      return;
+    }
+
     setIsAnalyzing(true);
     const results = await classflowService.analyzeAssignment(classRoom.id, assignment.id, launchContext);
     setPatterns(results);
@@ -91,11 +96,16 @@ export function AddonStudentWorkReviewPage() {
       <StudentWorkReviewPanel
         assignmentTitle={assignment.title}
         assignmentSummary={assignment.summary}
-        submissionCount={assignment.submissionCount}
+        submissionCount={submissionReferences.length || assignment.submissionCount}
+        submissionReferences={submissionReferences}
+        selectedSubmission={selectedSubmission}
+        submissionLoadIssue={submissionLoadIssue}
         targetedObjectives={targetedObjectives}
         patterns={patterns}
         hasAnalyzed={hasAnalyzed}
         isAnalyzing={isAnalyzing}
+        canAnalyze={canAnalyze}
+        analysisNotice={analysisNotice}
         onAnalyze={handleAnalyze}
         onDismissPattern={handleDismissPattern}
         acknowledgedPatternIds={acknowledgedPatternIds}

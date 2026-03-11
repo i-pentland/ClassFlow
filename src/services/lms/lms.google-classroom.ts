@@ -39,6 +39,20 @@ type GoogleClassroomCourseWorkListResponse = {
   nextPageToken?: string;
 };
 
+type GoogleClassroomStudentSubmission = {
+  id: string;
+  userId?: string;
+  state?: string;
+  updateTime?: string;
+  creationTime?: string;
+  late?: boolean;
+};
+
+type GoogleClassroomStudentSubmissionsResponse = {
+  studentSubmissions?: GoogleClassroomStudentSubmission[];
+  nextPageToken?: string;
+};
+
 // Official Google Classroom add-on style scaffold.
 // This file is the future integration seam for Classroom launch context, coursework,
 // submissions, and attachment references. It is intentionally not wired to live APIs yet.
@@ -166,6 +180,22 @@ async function listCoursesPlaceholder(config: GoogleClassroomScaffoldConfig): Pr
   return courses;
 }
 
+async function getCoursePlaceholder(
+  config: GoogleClassroomScaffoldConfig,
+  courseId: string,
+): Promise<Course | null> {
+  const payload = await fetchGoogleClassroomJson<GoogleClassroomCourse>(
+    config,
+    `/v1/courses/${encodeURIComponent(courseId)}`,
+  );
+
+  if (!payload) {
+    return null;
+  }
+
+  return mapGoogleCourseToCourse(payload);
+}
+
 async function listAssignmentsPlaceholder(
   config: GoogleClassroomScaffoldConfig,
   courseId: string,
@@ -219,6 +249,69 @@ async function getAssignmentPlaceholder(
   return mapGoogleCourseWorkToAssignment(courseId, payload);
 }
 
+function mapGoogleStudentSubmissionToReference(
+  assignmentId: string,
+  submission: GoogleClassroomStudentSubmission,
+): SubmissionReference {
+  const studentRef = submission.userId ?? "unknown-student";
+  const status = submission.state?.split("_").join(" ").toLowerCase() ?? "unknown status";
+  const lateLabel = submission.late ? "Late" : "On time";
+
+  return {
+    id: submission.id,
+    assignmentId,
+    studentId: studentRef,
+    studentName: `Student ${studentRef}`,
+    submittedAt: submission.updateTime ?? submission.creationTime ?? "",
+    contentType: "metadata",
+    contentPreview: `${status} · ${lateLabel}`,
+    sourceSubmissionRef: submission.id,
+  };
+}
+
+async function listStudentSubmissionsForAssignmentPlaceholder(
+  config: GoogleClassroomScaffoldConfig,
+  courseId: string,
+  assignmentId: string,
+): Promise<SubmissionReference[]> {
+  const submissions: SubmissionReference[] = [];
+  let nextPageToken: string | undefined;
+
+  do {
+    const searchParams = new URLSearchParams();
+    searchParams.set("pageSize", "50");
+
+    if (nextPageToken) {
+      searchParams.set("pageToken", nextPageToken);
+    }
+
+    const payload = await fetchGoogleClassroomJson<GoogleClassroomStudentSubmissionsResponse>(
+      config,
+      `/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(assignmentId)}/studentSubmissions`,
+      searchParams,
+    );
+
+    if (!payload) {
+      return [];
+    }
+
+    submissions.push(
+      ...(payload.studentSubmissions ?? []).map((submission) =>
+        mapGoogleStudentSubmissionToReference(assignmentId, submission),
+      ),
+    );
+    nextPageToken = payload.nextPageToken;
+  } while (nextPageToken);
+
+  if (submissions.length === 0) {
+    logPlaceholderBoundary(
+      `listStudentSubmissionsForAssignment() found no student submissions for coursework ${assignmentId}.`,
+    );
+  }
+
+  return submissions;
+}
+
 async function listStudentSubmissionsPlaceholder(
   _config: GoogleClassroomScaffoldConfig,
   _assignmentId: string,
@@ -257,6 +350,9 @@ export function createGoogleClassroomProvider(): LmsProvider {
     async getAssignment(courseId: string, assignmentId: string) {
       return getAssignmentPlaceholder(config, courseId, assignmentId);
     },
+    async listStudentSubmissionsForAssignment(courseId: string, assignmentId: string) {
+      return listStudentSubmissionsForAssignmentPlaceholder(config, courseId, assignmentId);
+    },
     async listStudentSubmissions(assignmentId: string) {
       // TODO: Replace with live student submission metadata list after coursework wiring is complete.
       return listStudentSubmissionsPlaceholder(config, assignmentId);
@@ -268,8 +364,10 @@ export function createGoogleClassroomProvider(): LmsProvider {
       return this.listCourses();
     },
     async getClassById(classId: string) {
-      const courses = await this.listCourses();
-      return courses.find((course) => course.id === classId || course.sourceCourseRef === classId) ?? null;
+      // Add-on launches can arrive with a concrete courseId even when that course is not
+      // present in the current listCourses() result set. Resolve the course directly by id
+      // so hosted add-on routes do not depend on prior dashboard-style course listing.
+      return getCoursePlaceholder(config, classId);
     },
     async getAssignmentsByClass(classId: string) {
       return this.listAssignments(classId);

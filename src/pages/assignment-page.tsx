@@ -72,6 +72,8 @@ export function AssignmentPage() {
           assignmentTitle={assignment.title}
           assignmentSummary={assignment.summary}
           submissionCount={assignment.submissionCount}
+          submissionReferences={[]}
+          selectedSubmission={null}
           targetedObjectives={targetedObjectives}
           patterns={patterns}
           hasAnalyzed={hasAnalyzed}

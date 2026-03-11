@@ -40,7 +40,7 @@ export interface SubmissionReference {
   studentId: string;
   studentName: string;
   submittedAt: string;
-  contentType: "text";
+  contentType: "text" | "metadata";
   contentPreview: string;
   sourceSubmissionRef: string;
 }

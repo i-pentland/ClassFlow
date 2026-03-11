@@ -1,5 +1,6 @@
 import { useLoaderData, useLocation } from "react-router-dom";
 
+import { LmsDebugPanel } from "@/components/debug/lms-debug-panel";
 import { TeacherViewEmbedded } from "@/components/embedded/teacher-view-embedded";
 import { AppShell } from "@/components/layouts/app-shell";
 import { ClassCard } from "@/components/class-card";
@@ -63,6 +64,11 @@ export function DashboardPage() {
             <ClassCard key={classItem.classRoom.id} classItem={classItem} />
           ))}
         </div>
+        {import.meta.env.DEV ? (
+          <div className="mt-8">
+            <LmsDebugPanel classes={classes} />
+          </div>
+        ) : null}
       </section>
     </AppShell>
   );

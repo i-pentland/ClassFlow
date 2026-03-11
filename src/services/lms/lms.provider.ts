@@ -16,6 +16,7 @@ export interface LmsProvider {
   listCourses(): Promise<Course[]>;
   listAssignments(courseId: string): Promise<Assignment[]>;
   getAssignment(courseId: string, assignmentId: string): Promise<Assignment | null>;
+  listStudentSubmissionsForAssignment(courseId: string, assignmentId: string): Promise<SubmissionReference[]>;
   listStudentSubmissions(assignmentId: string): Promise<SubmissionReference[]>;
   getSubmissionAttachments(submissionRef: string): Promise<SubmissionAttachment[]>;
   getClasses(): Promise<Class[]>;
@@ -35,6 +36,7 @@ const unsafeEntityFallbackOperations = new Set([
   "getClassById",
   "getAssignmentsByClass",
   "getAssignment",
+  "listStudentSubmissionsForAssignment",
   "getAssignmentById",
   "listStudentSubmissions",
   "getSubmissionAttachments",
@@ -81,6 +83,10 @@ export const lmsProvider: LmsProvider = {
   listAssignments: (courseId) => withFallback("listAssignments", (provider) => provider.listAssignments(courseId)),
   getAssignment: (courseId, assignmentId) =>
     withFallback("getAssignment", (provider) => provider.getAssignment(courseId, assignmentId)),
+  listStudentSubmissionsForAssignment: (courseId, assignmentId) =>
+    withFallback("listStudentSubmissionsForAssignment", (provider) =>
+      provider.listStudentSubmissionsForAssignment(courseId, assignmentId),
+    ),
   listStudentSubmissions: (assignmentId) =>
     withFallback("listStudentSubmissions", (provider) => provider.listStudentSubmissions(assignmentId)),
   getSubmissionAttachments: (submissionRef) =>

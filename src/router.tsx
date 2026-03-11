@@ -149,21 +149,16 @@ export const router = createBrowserRouter([
               const url = new URL(request.url);
               const launchContext = getIframeLaunchContextFromUrl(url);
               try {
-                const assignmentData = await classflowService.getAssignmentPageDataForLaunchContext(launchContext);
-
-                return {
-                  assignmentData,
-                  assignmentContextIssue:
-                    assignmentData || !launchContext.lmsAssignmentId
-                      ? null
-                      : "We could not resolve that Google Classroom assignment for student work review.",
-                };
+                return classflowService.getStudentWorkReviewPageDataForLaunchContext(launchContext);
               } catch {
                 return {
                   assignmentData: null,
                   assignmentContextIssue:
                     getLastLmsProviderIssue() ??
                     "We could not resolve the selected Google Classroom assignment for student work review.",
+                  submissionReferences: [],
+                  submissionLoadIssue: null,
+                  selectedSubmission: null,
                 };
               }
             },

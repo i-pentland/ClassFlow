@@ -2,21 +2,47 @@ import {
   getLastLmsProviderIssue,
   lmsProvider,
 } from "@/services/lms/lms.provider";
-import type { Assignment } from "@/services/lms/lms.types";
+import type { Assignment, SubmissionReference } from "@/services/lms/lms.types";
 import { runAssignmentAnalysis } from "@/services/analysis/analysis-orchestrator.service";
 import type { DerivedPattern } from "@/services/analysis/analysis.types";
 import type { IframeLaunchContext } from "@/features/iframe-context/iframe-context.types";
 import type { ClassRoom, LearningObjective, Student } from "@/types/domain";
 import type { ErrorPattern } from "@/services/insights/insights.types";
-import type { AssignmentPageData, AssignmentListItem, ClassPageData, DashboardClassCard, ResolvedAnalysisPattern } from "@/types/view-models";
+import type {
+  AssignmentPageData,
+  AssignmentListItem,
+  ClassPageData,
+  DashboardClassCard,
+  ResolvedAnalysisPattern,
+  StudentWorkReviewPageData,
+} from "@/types/view-models";
 
 async function withSubmissionCount(assignment: Assignment): Promise<AssignmentListItem> {
-  const submissions = await lmsProvider.getSubmissionReferencesByAssignment(assignment.id);
-  const targetedObjectives = await lmsProvider.getLearningObjectivesByIds(assignment.targetedObjectiveIds);
+  let submissionsCount = 0;
+  let targetedObjectives: LearningObjective[] = [];
+
+  try {
+    submissionsCount = (await lmsProvider.getSubmissionReferencesByAssignment(assignment.id)).length;
+  } catch (error) {
+    // Add-on assignment context should still render even when submission-specific LMS
+    // metadata is not implemented yet. Keep the route usable and surface submission
+    // context separately in the embedded UI instead of discarding the assignment.
+    if (import.meta.env.DEV) {
+      console.warn("Student submission metadata is unavailable for this assignment context.", error);
+    }
+  }
+
+  try {
+    targetedObjectives = await lmsProvider.getLearningObjectivesByIds(assignment.targetedObjectiveIds);
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn("Learning objective metadata is unavailable for this assignment context.", error);
+    }
+  }
 
   return {
     ...assignment,
-    submissionCount: submissions.length,
+    submissionCount: submissionsCount,
     targetedObjectives,
   };
 }
@@ -118,11 +144,17 @@ export const classflowService = {
           return {
             classRoom,
             assignmentCount: assignments.length,
+            debugAssignments: assignments.map((assignment) => ({
+              id: assignment.id,
+              title: assignment.title,
+              sourceAssignmentRef: assignment.sourceAssignmentRef,
+            })),
           };
         } catch {
           return {
             classRoom,
             assignmentCount: 0,
+            debugAssignments: [],
           };
         }
       }),
@@ -242,6 +274,53 @@ export const classflowService = {
     }
 
     return null;
+  },
+
+  async getStudentWorkReviewPageDataForLaunchContext(
+    launchContext: IframeLaunchContext,
+  ): Promise<StudentWorkReviewPageData> {
+    const assignmentData = await this.getAssignmentPageDataForLaunchContext(launchContext);
+
+    if (!assignmentData) {
+      return {
+        assignmentData: null,
+        assignmentContextIssue: launchContext.lmsAssignmentId
+          ? "We could not resolve that Google Classroom assignment for student work review."
+          : null,
+        submissionReferences: [],
+        submissionLoadIssue: null,
+        selectedSubmission: null,
+      };
+    }
+
+    let submissionReferences: SubmissionReference[] = [];
+    let submissionLoadIssue: string | null = null;
+
+    try {
+      submissionReferences = await lmsProvider.listStudentSubmissionsForAssignment(
+        assignmentData.classRoom.sourceCourseRef,
+        assignmentData.assignment.sourceAssignmentRef,
+      );
+    } catch {
+      submissionLoadIssue =
+        getLastLmsProviderIssue() ??
+        "We could not load Google Classroom submission metadata for this assignment.";
+    }
+
+    const selectedSubmission =
+      submissionReferences.find(
+        (submission) =>
+          submission.sourceSubmissionRef === launchContext.lmsSubmissionId ||
+          submission.id === launchContext.lmsSubmissionId,
+      ) ?? null;
+
+    return {
+      assignmentData,
+      assignmentContextIssue: null,
+      submissionReferences,
+      submissionLoadIssue,
+      selectedSubmission,
+    };
   },
 
   async analyzeAssignment(

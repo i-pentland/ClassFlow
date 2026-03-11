@@ -24,25 +24,34 @@ function normalizeLaunchSource(source: string | null): IframeLaunchContext["laun
   return "standalone";
 }
 
-export function getIframeLaunchContextFromSearch(search: string): IframeLaunchContext {
+function parseContextParams(search: string): Pick<
+  IframeLaunchContext,
+  "iframeType" | "lmsCourseId" | "lmsAssignmentId" | "lmsSubmissionId" | "lmsAttachmentId"
+> {
   const params = new URLSearchParams(search);
-  const launchSource = normalizeLaunchSource(params.get("source"));
+  const iframeType = params.get("iframeType");
+
+  return {
+    iframeType:
+      iframeType === "attachment_discovery" ||
+      iframeType === "teacher_view" ||
+      iframeType === "student_work_review"
+        ? iframeType
+        : undefined,
+    lmsCourseId: params.get("courseId") ?? undefined,
+    lmsAssignmentId: params.get("assignmentId") ?? undefined,
+    lmsSubmissionId: params.get("submissionId") ?? undefined,
+    lmsAttachmentId: params.get("attachmentId") ?? undefined,
+  };
+}
+
+export function getIframeLaunchContextFromSearch(search: string): IframeLaunchContext {
+  const launchSource = normalizeLaunchSource(new URLSearchParams(search).get("source"));
 
   if (launchSource === "google_classroom_addon") {
-    const iframeType = params.get("iframeType");
-
     return {
       launchSource,
-      iframeType:
-        iframeType === "attachment_discovery" ||
-        iframeType === "teacher_view" ||
-        iframeType === "student_work_review"
-          ? iframeType
-          : undefined,
-      lmsCourseId: params.get("courseId") ?? undefined,
-      lmsAssignmentId: params.get("assignmentId") ?? undefined,
-      lmsSubmissionId: params.get("submissionId") ?? undefined,
-      lmsAttachmentId: params.get("attachmentId") ?? undefined,
+      ...parseContextParams(search),
     };
   }
 
@@ -58,12 +67,14 @@ export function getIframeLaunchContextFromUrl(url: URL): IframeLaunchContext {
 export function getIframeLaunchContextFromLocation(pathname: string, search: string): IframeLaunchContext {
   const context = getIframeLaunchContextFromSearch(search);
   const inferredIframeType = inferIframeTypeFromPathname(pathname);
+  const parsedParams = parseContextParams(search);
 
   if (pathname.startsWith("/addon/")) {
     return {
+      ...parsedParams,
       ...context,
       launchSource: "google_classroom_addon",
-      iframeType: context.iframeType ?? inferredIframeType,
+      iframeType: context.iframeType ?? parsedParams.iframeType ?? inferredIframeType,
     };
   }
 

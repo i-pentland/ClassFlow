@@ -183,6 +183,10 @@ export function createMockLmsProvider(): LmsProvider {
       const assignment = mockAssignments.find((item) => item.id === assignmentId) ?? null;
       return assignment && assignment.classId === courseId ? assignment : null;
     },
+    async listStudentSubmissionsForAssignment(courseId: string, assignmentId: string) {
+      const assignment = mockAssignments.find((item) => item.id === assignmentId && item.classId === courseId);
+      return assignment ? mockSubmissionReferences.filter((item) => item.assignmentId === assignment.id) : [];
+    },
     async listStudentSubmissions(assignmentId: string) {
       return mockSubmissionReferences.filter((item) => item.assignmentId === assignmentId);
     },
