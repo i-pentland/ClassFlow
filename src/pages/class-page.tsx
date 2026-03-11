@@ -19,6 +19,7 @@ export function ClassPage() {
   const loaderData = useLoaderData() as ClassPageData | null;
   const classRoom = loaderData?.classRoom;
   const assignments = loaderData?.assignments ?? [];
+  const assignmentLoadIssue = loaderData?.assignmentLoadIssue ?? null;
   const launchContext = getIframeLaunchContextFromLocation(location.pathname, location.search);
   const [activeObjectives, setActiveObjectives] = useState<LearningObjective[]>(() => loaderData?.activeObjectives ?? []);
   const [availableObjectives, setAvailableObjectives] = useState<LearningObjective[]>(
@@ -95,7 +96,7 @@ export function ClassPage() {
               </CardContent>
             </Card>
 
-            <AssignmentList assignments={assignments} />
+            <AssignmentList assignments={assignments} errorMessage={assignmentLoadIssue} />
           </div>
 
           <ObjectiveManager

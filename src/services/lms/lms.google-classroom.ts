@@ -20,6 +20,25 @@ type GoogleClassroomCoursesResponse = {
   nextPageToken?: string;
 };
 
+type GoogleClassroomDueDate = {
+  year?: number;
+  month?: number;
+  day?: number;
+};
+
+type GoogleClassroomCourseWork = {
+  id: string;
+  title: string;
+  description?: string;
+  updateTime?: string;
+  dueDate?: GoogleClassroomDueDate;
+};
+
+type GoogleClassroomCourseWorkListResponse = {
+  courseWork?: GoogleClassroomCourseWork[];
+  nextPageToken?: string;
+};
+
 // Official Google Classroom add-on style scaffold.
 // This file is the future integration seam for Classroom launch context, coursework,
 // submissions, and attachment references. It is intentionally not wired to live APIs yet.
@@ -38,6 +57,54 @@ function logPlaceholderBoundary(message: string) {
   console.info(`[google-classroom-scaffold] ${message}`);
 }
 
+async function getAccessTokenOrThrow() {
+  const accessToken = await getGoogleAccessToken();
+
+  if (!accessToken) {
+    throw new Error(
+      "No Google provider token is available in the current session. Reauthenticate with Classroom scopes enabled.",
+    );
+  }
+
+  return accessToken;
+}
+
+async function fetchGoogleClassroomJson<T>(config: GoogleClassroomScaffoldConfig, path: string, searchParams?: URLSearchParams) {
+  const accessToken = await getAccessTokenOrThrow();
+  const requestUrl = new URL(path, config.apiBaseUrl ?? "https://classroom.googleapis.com");
+
+  if (searchParams) {
+    requestUrl.search = searchParams.toString();
+  }
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Classroom request failed with ${response.status} ${response.statusText}.`);
+  }
+
+  return (await response.json()) as T;
+}
+
+function formatDueDate(dueDate?: GoogleClassroomDueDate) {
+  if (!dueDate?.year || !dueDate.month || !dueDate.day) {
+    return "No due date";
+  }
+
+  const month = `${dueDate.month}`.padStart(2, "0");
+  const day = `${dueDate.day}`.padStart(2, "0");
+
+  return `${dueDate.year}-${month}-${day}`;
+}
+
 function mapGoogleCourseToCourse(course: GoogleClassroomCourse): Course {
   return {
     id: course.id,
@@ -51,39 +118,43 @@ function mapGoogleCourseToCourse(course: GoogleClassroomCourse): Course {
   };
 }
 
+function mapGoogleCourseWorkToAssignment(courseId: string, courseWork: GoogleClassroomCourseWork): Assignment {
+  return {
+    id: courseWork.id,
+    classId: courseId,
+    title: courseWork.title,
+    dueDate: formatDueDate(courseWork.dueDate),
+    targetedObjectiveIds: [],
+    summary: courseWork.description?.trim() || "Imported from Google Classroom.",
+    sourceAssignmentRef: courseWork.id,
+    sourceCourseRef: courseId,
+  };
+}
+
 async function listCoursesPlaceholder(config: GoogleClassroomScaffoldConfig): Promise<Course[]> {
-  const accessToken = await getGoogleAccessToken();
-
-  if (!accessToken) {
-    throw new Error(
-      "No Google provider token is available in the current session. Reauthenticate with Classroom scopes enabled.",
-    );
-  }
-
   const courses: Course[] = [];
   let nextPageToken: string | undefined;
 
   do {
-    const requestUrl = new URL("/v1/courses", config.apiBaseUrl ?? "https://classroom.googleapis.com");
-    requestUrl.searchParams.set("teacherId", "me");
-    requestUrl.searchParams.set("pageSize", "50");
-    requestUrl.searchParams.set("courseStates", "ACTIVE");
+    const searchParams = new URLSearchParams();
+    searchParams.set("teacherId", "me");
+    searchParams.set("pageSize", "50");
+    searchParams.set("courseStates", "ACTIVE");
 
     if (nextPageToken) {
-      requestUrl.searchParams.set("pageToken", nextPageToken);
+      searchParams.set("pageToken", nextPageToken);
     }
 
-    const response = await fetch(requestUrl.toString(), {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+    const payload = await fetchGoogleClassroomJson<GoogleClassroomCoursesResponse>(
+      config,
+      "/v1/courses",
+      searchParams,
+    );
 
-    if (!response.ok) {
-      throw new Error(`Classroom courses request failed with ${response.status} ${response.statusText}.`);
+    if (!payload) {
+      break;
     }
 
-    const payload = (await response.json()) as GoogleClassroomCoursesResponse;
     courses.push(...(payload.courses ?? []).map(mapGoogleCourseToCourse));
     nextPageToken = payload.nextPageToken;
   } while (nextPageToken);
@@ -96,12 +167,56 @@ async function listCoursesPlaceholder(config: GoogleClassroomScaffoldConfig): Pr
 }
 
 async function listAssignmentsPlaceholder(
-  _config: GoogleClassroomScaffoldConfig,
-  _courseId: string,
+  config: GoogleClassroomScaffoldConfig,
+  courseId: string,
 ): Promise<Assignment[]> {
-  // TODO: Map Google Classroom coursework objects into ClassFlow assignments.
-  logPlaceholderBoundary("listAssignments() is using the development scaffold.");
-  return [];
+  const assignments: Assignment[] = [];
+  let nextPageToken: string | undefined;
+
+  do {
+    const searchParams = new URLSearchParams();
+    searchParams.set("pageSize", "50");
+
+    if (nextPageToken) {
+      searchParams.set("pageToken", nextPageToken);
+    }
+
+    const payload = await fetchGoogleClassroomJson<GoogleClassroomCourseWorkListResponse>(
+      config,
+      `/v1/courses/${encodeURIComponent(courseId)}/courseWork`,
+      searchParams,
+    );
+
+    if (!payload) {
+      return [];
+    }
+
+    assignments.push(...(payload.courseWork ?? []).map((courseWork) => mapGoogleCourseWorkToAssignment(courseId, courseWork)));
+    nextPageToken = payload.nextPageToken;
+  } while (nextPageToken);
+
+  if (assignments.length === 0) {
+    logPlaceholderBoundary(`listAssignments() found no Classroom coursework for course ${courseId}.`);
+  }
+
+  return assignments;
+}
+
+async function getAssignmentPlaceholder(
+  config: GoogleClassroomScaffoldConfig,
+  courseId: string,
+  assignmentId: string,
+): Promise<Assignment | null> {
+  const payload = await fetchGoogleClassroomJson<GoogleClassroomCourseWork>(
+    config,
+    `/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(assignmentId)}`,
+  );
+
+  if (!payload) {
+    return null;
+  }
+
+  return mapGoogleCourseWorkToAssignment(courseId, payload);
 }
 
 async function listStudentSubmissionsPlaceholder(
@@ -137,18 +252,10 @@ export function createGoogleClassroomProvider(): LmsProvider {
       return listCoursesPlaceholder(config);
     },
     async listAssignments(courseId: string) {
-      // TODO: Replace with live Google Classroom coursework list once coursework mapping is implemented.
       return listAssignmentsPlaceholder(config, courseId);
     },
     async getAssignment(courseId: string, assignmentId: string) {
-      const assignments = await listAssignmentsPlaceholder(config, courseId);
-
-      return (
-        assignments.find(
-          (assignment) =>
-            assignment.sourceAssignmentRef === assignmentId || assignment.id === assignmentId,
-        ) ?? null
-      );
+      return getAssignmentPlaceholder(config, courseId, assignmentId);
     },
     async listStudentSubmissions(assignmentId: string) {
       // TODO: Replace with live student submission metadata list after coursework wiring is complete.

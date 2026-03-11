@@ -7,16 +7,22 @@ import type { AssignmentListItem } from "@/types/view-models";
 
 type AssignmentListProps = {
   assignments: AssignmentListItem[];
+  errorMessage?: string | null;
 };
 
-export function AssignmentList({ assignments }: AssignmentListProps) {
+export function AssignmentList({ assignments, errorMessage }: AssignmentListProps) {
   return (
     <Card className="border-white/80 bg-white/90">
       <CardHeader>
         <CardTitle>Assignments</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {assignments.length === 0 ? (
+        {errorMessage ? (
+          <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50/90 px-4 py-5 text-sm leading-6 text-amber-900/80">
+            {errorMessage}
+          </div>
+        ) : null}
+        {!errorMessage && assignments.length === 0 ? (
           <div className="rounded-[1.25rem] border border-dashed border-border bg-secondary/30 px-4 py-5 text-sm text-muted-foreground">
             No assignments are available for this class yet.
           </div>

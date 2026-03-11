@@ -18,6 +18,7 @@ export type ResolvedAnalysisPattern = AnalysisPattern & {
 export type ClassPageData = {
   classRoom: ClassRoom;
   assignments: AssignmentListItem[];
+  assignmentLoadIssue?: string | null;
   activeObjectives: LearningObjective[];
   availableObjectives: LearningObjective[];
 };

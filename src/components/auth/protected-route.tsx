@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
 import { useAuth } from "@/context/AuthContext";
+import { buildAuthRedirectUrl } from "@/lib/auth-intended-route";
 
 export function ProtectedRoute() {
   const { isLoading, session } = useAuth();
@@ -17,7 +18,9 @@ export function ProtectedRoute() {
   }
 
   if (!session) {
-    return <Navigate to="/auth" replace state={{ from: location.pathname }} />;
+    const intendedRoute = `${location.pathname}${location.search}${location.hash}`;
+
+    return <Navigate to={buildAuthRedirectUrl(intendedRoute)} replace />;
   }
 
   return <Outlet />;

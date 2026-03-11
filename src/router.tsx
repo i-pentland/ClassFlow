@@ -2,6 +2,7 @@ import { createBrowserRouter, redirect } from "react-router-dom";
 
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { getIframeLaunchContextFromUrl } from "@/features/iframe-context/iframe-context.service";
+import { buildAuthRedirectUrl } from "@/lib/auth-intended-route";
 import { getCurrentSession, getReadableAuthError } from "@/lib/auth";
 import { AddonAttachmentDiscoveryPage } from "@/pages/addon-attachment-discovery-page";
 import { AddonStudentWorkReviewPage } from "@/pages/addon-student-work-review-page";
@@ -14,14 +15,24 @@ import { DashboardPage } from "@/pages/dashboard-page";
 import { LandingPage } from "@/pages/landing-page";
 import { classflowService } from "@/services/classflowService";
 
-async function requireAuthenticatedSession() {
+async function requireAuthenticatedSession(request?: Request) {
   const { data, error } = await getCurrentSession();
 
   if (error) {
-    throw redirect(`/auth?error=${encodeURIComponent(getReadableAuthError(error))}`);
+    const fallbackRoute = request ? new URL(request.url) : null;
+    const intendedRoute = fallbackRoute ? `${fallbackRoute.pathname}${fallbackRoute.search}` : null;
+    const authUrl = intendedRoute ? buildAuthRedirectUrl(intendedRoute) : "/auth";
+    const separator = authUrl.includes("?") ? "&" : "?";
+
+    throw redirect(`${authUrl}${separator}error=${encodeURIComponent(getReadableAuthError(error))}`);
   }
 
   if (!data.session) {
+    if (request) {
+      const url = new URL(request.url);
+      throw redirect(buildAuthRedirectUrl(`${url.pathname}${url.search}`));
+    }
+
     throw redirect("/auth");
   }
 
@@ -63,7 +74,7 @@ export const router = createBrowserRouter([
         path: "/dashboard",
         element: <DashboardPage />,
         loader: async ({ request }) => {
-          await requireAuthenticatedSession();
+          await requireAuthenticatedSession(request);
           const url = new URL(request.url);
           const search = url.search;
           const launchContext = getIframeLaunchContextFromUrl(url);
@@ -79,8 +90,8 @@ export const router = createBrowserRouter([
       {
         path: "/addon/attachment-discovery",
         element: <AddonAttachmentDiscoveryPage />,
-        loader: async () => {
-          await requireAuthenticatedSession();
+        loader: async ({ request }) => {
+          await requireAuthenticatedSession(request);
           return classflowService.getDashboardClasses();
         },
       },
@@ -88,7 +99,7 @@ export const router = createBrowserRouter([
         path: "/addon/teacher-view",
         element: <AddonTeacherViewPage />,
         loader: async ({ request }) => {
-          await requireAuthenticatedSession();
+          await requireAuthenticatedSession(request);
           const url = new URL(request.url);
           const launchContext = getIframeLaunchContextFromUrl(url);
           const [dashboardClasses, classPageData, assignmentData] = await Promise.all([
@@ -116,7 +127,7 @@ export const router = createBrowserRouter([
         path: "/addon/student-work-review",
         element: <AddonStudentWorkReviewPage />,
         loader: async ({ request }) => {
-          await requireAuthenticatedSession();
+          await requireAuthenticatedSession(request);
           const url = new URL(request.url);
           const launchContext = getIframeLaunchContextFromUrl(url);
 
@@ -127,7 +138,7 @@ export const router = createBrowserRouter([
         path: "/class/:classId",
         element: <ClassPage />,
         loader: async ({ params, request }) => {
-          await requireAuthenticatedSession();
+          await requireAuthenticatedSession(request);
           const classId = params.classId;
 
           if (!classId) {
@@ -154,7 +165,7 @@ export const router = createBrowserRouter([
         path: "/class/:classId/assignment/:assignmentId",
         element: <AssignmentPage />,
         loader: async ({ params, request }) => {
-          await requireAuthenticatedSession();
+          await requireAuthenticatedSession(request);
           const { classId, assignmentId } = params;
 
           if (!classId || !assignmentId) {

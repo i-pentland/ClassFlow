@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { AppShell } from "@/components/layouts/app-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { consumeStoredIntendedRoute } from "@/lib/auth-intended-route";
 import { ensureSessionProfile, getCurrentSession, getReadableAuthError } from "@/lib/auth";
 
 export function AuthCallbackPage() {
@@ -35,7 +36,9 @@ export function AuthCallbackPage() {
 
       try {
         await ensureSessionProfile(data.session);
-        navigate("/dashboard", { replace: true });
+        // Return teachers to the exact originally requested route after OAuth.
+        // This keeps /addon/* surfaces testable as embedded Classroom entry points.
+        navigate(consumeStoredIntendedRoute() ?? "/dashboard", { replace: true });
       } catch (profileError) {
         if (isMounted) {
           setMessage("Signed in, but we could not finish preparing your profile.");

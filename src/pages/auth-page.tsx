@@ -1,35 +1,50 @@
 import { Chrome, LoaderCircle, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { AppShell } from "@/components/layouts/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
+import {
+  getStoredIntendedRoute,
+  persistIntendedRoute,
+} from "@/lib/auth-intended-route";
 import { getReadableAuthError } from "@/lib/auth";
 
 export function AuthPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [pageError, setPageError] = useState<string | null>(searchParams.get("error"));
   const { session, isLoading, signInWithGoogle, error, clearError } = useAuth();
+  const redirectTo = searchParams.get("redirectTo");
 
   useEffect(() => {
     if (!isLoading && session) {
-      navigate("/dashboard", { replace: true });
+      navigate(redirectTo ?? getStoredIntendedRoute() ?? "/dashboard", { replace: true });
     }
-  }, [isLoading, navigate, session]);
+  }, [isLoading, navigate, redirectTo, session]);
 
   useEffect(() => {
     setPageError(searchParams.get("error"));
   }, [searchParams]);
 
+  useEffect(() => {
+    // Preserve the originally requested route across the Google OAuth round-trip.
+    // This is required for add-on testing because teachers often start on /addon/*
+    // routes with LMS context query params instead of the standalone dashboard.
+    persistIntendedRoute(redirectTo);
+  }, [redirectTo]);
+
   const handleGoogleSignIn = async () => {
     setIsRedirecting(true);
     clearError();
     setPageError(null);
+
+    persistIntendedRoute(redirectTo ?? `${location.pathname}${location.search}${location.hash}`);
 
     const { error } = await signInWithGoogle();
 
@@ -76,7 +91,10 @@ export function AuthPage() {
           <Card className="border-white/80 bg-white/90">
             <CardHeader>
               <CardTitle>Teacher sign in</CardTitle>
-              <CardDescription>Use Google to continue into the authenticated dashboard.</CardDescription>
+              <CardDescription>
+                Use Google to continue into the authenticated app. Add-on routes return to their
+                original embedded context after sign-in.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <Button

@@ -3,6 +3,7 @@ import { useLoaderData, useLocation } from "react-router-dom";
 
 import { StudentWorkReviewPanel } from "@/components/embedded/student-work-review-panel";
 import { EmbeddedAppShell } from "@/components/layouts/embedded-app-shell";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getIframeLaunchContextFromLocation } from "@/features/iframe-context/iframe-context.service";
 import { classflowService } from "@/services/classflowService";
@@ -66,6 +67,26 @@ export function AddonStudentWorkReviewPage() {
 
   return (
     <EmbeddedAppShell>
+      <section className="mx-auto max-w-5xl px-4 pt-6 sm:px-6 lg:px-8">
+        {launchContext.lmsSubmissionId ? (
+          <Card className="border-amber-200/70 bg-amber-50/80">
+            <CardHeader className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="w-fit border-amber-200 bg-white text-amber-900">
+                  Submission context scaffold
+                </Badge>
+              </div>
+              <CardTitle className="text-lg">Assignment context resolved, submission context still scaffolded</CardTitle>
+              <CardDescription className="text-amber-900/80">
+                ClassFlow resolved the assignment from Google Classroom and is rendering the
+                assignment-level review surface. Submission-specific context for
+                `{launchContext.lmsSubmissionId}` is not implemented yet, so this view does not
+                narrow to a single student submission.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        ) : null}
+      </section>
       <StudentWorkReviewPanel
         assignmentTitle={assignment.title}
         assignmentSummary={assignment.summary}

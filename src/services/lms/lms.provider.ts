@@ -29,11 +29,20 @@ export interface LmsProvider {
 }
 
 let lastLmsProviderIssue: string | null = null;
+const configuredProviderName = import.meta.env.VITE_LMS_PROVIDER ?? import.meta.env.VITE_CLASSROOM_PROVIDER ?? "mock";
+const isGoogleClassroomConfigured = configuredProviderName === "google_classroom";
+const unsafeEntityFallbackOperations = new Set([
+  "getClassById",
+  "getAssignmentsByClass",
+  "getAssignment",
+  "getAssignmentById",
+  "listStudentSubmissions",
+  "getSubmissionAttachments",
+  "getSubmissionReferencesByAssignment",
+]);
 
 function getConfiguredLmsProvider(): LmsProvider {
-  const provider = import.meta.env.VITE_LMS_PROVIDER ?? import.meta.env.VITE_CLASSROOM_PROVIDER ?? "mock";
-
-  if (provider === "google_classroom") {
+  if (configuredProviderName === "google_classroom") {
     return createGoogleClassroomProvider();
   }
 
@@ -43,12 +52,20 @@ function getConfiguredLmsProvider(): LmsProvider {
 const mockProvider = createMockLmsProvider();
 const configuredProvider = getConfiguredLmsProvider();
 
-async function withFallback<T>(operation: (provider: LmsProvider) => Promise<T>): Promise<T> {
+async function withFallback<T>(operationName: string, operation: (provider: LmsProvider) => Promise<T>): Promise<T> {
   try {
     const result = await operation(configuredProvider);
     lastLmsProviderIssue = null;
     return result;
   } catch (error) {
+    // Per-method mock fallback is dangerous once the app is operating on real Google
+    // Classroom entity ids. A failed live assignment fetch followed by a mock lookup
+    // against a real course id produces misleading empty arrays that look like "no data".
+    if (isGoogleClassroomConfigured && unsafeEntityFallbackOperations.has(operationName)) {
+      lastLmsProviderIssue = `Google Classroom ${operationName} failed. ${error instanceof Error ? error.message : ""}`.trim();
+      throw error;
+    }
+
     lastLmsProviderIssue =
       configuredProvider === mockProvider
         ? null
@@ -59,25 +76,25 @@ async function withFallback<T>(operation: (provider: LmsProvider) => Promise<T>)
 }
 
 export const lmsProvider: LmsProvider = {
-  resolveAddonContext: (context) => withFallback((provider) => provider.resolveAddonContext(context)),
-  listCourses: () => withFallback((provider) => provider.listCourses()),
-  listAssignments: (courseId) => withFallback((provider) => provider.listAssignments(courseId)),
+  resolveAddonContext: (context) => withFallback("resolveAddonContext", (provider) => provider.resolveAddonContext(context)),
+  listCourses: () => withFallback("listCourses", (provider) => provider.listCourses()),
+  listAssignments: (courseId) => withFallback("listAssignments", (provider) => provider.listAssignments(courseId)),
   getAssignment: (courseId, assignmentId) =>
-    withFallback((provider) => provider.getAssignment(courseId, assignmentId)),
+    withFallback("getAssignment", (provider) => provider.getAssignment(courseId, assignmentId)),
   listStudentSubmissions: (assignmentId) =>
-    withFallback((provider) => provider.listStudentSubmissions(assignmentId)),
+    withFallback("listStudentSubmissions", (provider) => provider.listStudentSubmissions(assignmentId)),
   getSubmissionAttachments: (submissionRef) =>
-    withFallback((provider) => provider.getSubmissionAttachments(submissionRef)),
-  getClasses: () => withFallback((provider) => provider.getClasses()),
-  getClassById: (classId) => withFallback((provider) => provider.getClassById(classId)),
-  getAssignmentsByClass: (classId) => withFallback((provider) => provider.getAssignmentsByClass(classId)),
-  getAssignmentById: (assignmentId) => withFallback((provider) => provider.getAssignmentById(assignmentId)),
+    withFallback("getSubmissionAttachments", (provider) => provider.getSubmissionAttachments(submissionRef)),
+  getClasses: () => withFallback("getClasses", (provider) => provider.getClasses()),
+  getClassById: (classId) => withFallback("getClassById", (provider) => provider.getClassById(classId)),
+  getAssignmentsByClass: (classId) => withFallback("getAssignmentsByClass", (provider) => provider.getAssignmentsByClass(classId)),
+  getAssignmentById: (assignmentId) => withFallback("getAssignmentById", (provider) => provider.getAssignmentById(assignmentId)),
   getLearningObjectivesByClass: (classId) =>
-    withFallback((provider) => provider.getLearningObjectivesByClass(classId)),
-  getLearningObjectivesByIds: (ids) => withFallback((provider) => provider.getLearningObjectivesByIds(ids)),
-  getStudentsByIds: (ids) => withFallback((provider) => provider.getStudentsByIds(ids)),
+    withFallback("getLearningObjectivesByClass", (provider) => provider.getLearningObjectivesByClass(classId)),
+  getLearningObjectivesByIds: (ids) => withFallback("getLearningObjectivesByIds", (provider) => provider.getLearningObjectivesByIds(ids)),
+  getStudentsByIds: (ids) => withFallback("getStudentsByIds", (provider) => provider.getStudentsByIds(ids)),
   getSubmissionReferencesByAssignment: (assignmentId) =>
-    withFallback((provider) => provider.getSubmissionReferencesByAssignment(assignmentId)),
+    withFallback("getSubmissionReferencesByAssignment", (provider) => provider.getSubmissionReferencesByAssignment(assignmentId)),
 };
 
 export function getLastLmsProviderIssue() {

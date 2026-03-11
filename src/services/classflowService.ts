@@ -1,4 +1,5 @@
 import {
+  getLastLmsProviderIssue,
   lmsProvider,
 } from "@/services/lms/lms.provider";
 import type { Assignment } from "@/services/lms/lms.types";
@@ -18,6 +19,10 @@ async function withSubmissionCount(assignment: Assignment): Promise<AssignmentLi
     submissionCount: submissions.length,
     targetedObjectives,
   };
+}
+
+function getProviderIssueMessage(fallback: string) {
+  return getLastLmsProviderIssue() ?? fallback;
 }
 
 function mapDerivedPatternToInsight(pattern: DerivedPattern, assignment: Assignment): ErrorPattern {
@@ -93,12 +98,19 @@ export const classflowService = {
 
     return Promise.all(
       classes.map(async (classRoom) => {
-        const assignments = await lmsProvider.getAssignmentsByClass(classRoom.id);
+        try {
+          const assignments = await lmsProvider.getAssignmentsByClass(classRoom.id);
 
-        return {
-          classRoom,
-          assignmentCount: assignments.length,
-        };
+          return {
+            classRoom,
+            assignmentCount: assignments.length,
+          };
+        } catch {
+          return {
+            classRoom,
+            assignmentCount: 0,
+          };
+        }
       }),
     );
   },
@@ -110,10 +122,18 @@ export const classflowService = {
       return null;
     }
 
-    const [assignments, allObjectives] = await Promise.all([
-      lmsProvider.getAssignmentsByClass(classRoom.id),
-      lmsProvider.getLearningObjectivesByClass(classRoom.id),
-    ]);
+    let assignments: Assignment[] = [];
+    let assignmentLoadIssue: string | null = null;
+
+    try {
+      assignments = await lmsProvider.getAssignmentsByClass(classRoom.id);
+    } catch {
+      assignmentLoadIssue = getProviderIssueMessage(
+        "We could not load assignments from Google Classroom for this class.",
+      );
+    }
+
+    const allObjectives = await lmsProvider.getLearningObjectivesByClass(classRoom.id);
 
     const assignmentItems = await Promise.all(assignments.map(withSubmissionCount));
     const activeObjectiveIdSet = new Set(classRoom.learningObjectiveIds);
@@ -123,6 +143,7 @@ export const classflowService = {
     return {
       classRoom,
       assignments: assignmentItems,
+      assignmentLoadIssue,
       activeObjectives,
       availableObjectives,
     };
@@ -177,6 +198,17 @@ export const classflowService = {
       lmsSubmissionId: launchContext.lmsSubmissionId,
       lmsAttachmentId: launchContext.lmsAttachmentId,
     });
+
+    if (resolvedContext.lmsCourseId && resolvedContext.lmsAssignmentId) {
+      const [classRoom, assignment] = await Promise.all([
+        lmsProvider.getClassById(resolvedContext.lmsCourseId),
+        lmsProvider.getAssignment(resolvedContext.lmsCourseId, resolvedContext.lmsAssignmentId),
+      ]);
+
+      if (classRoom && assignment) {
+        return this.getAssignmentPageData(classRoom.id, assignment.id);
+      }
+    }
 
     const classes = await lmsProvider.getClasses();
 
