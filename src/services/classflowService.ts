@@ -21,6 +21,20 @@ async function withSubmissionCount(assignment: Assignment): Promise<AssignmentLi
   };
 }
 
+async function buildAssignmentPageData(classRoom: ClassRoom, assignment: Assignment): Promise<AssignmentPageData | null> {
+  if (assignment.classId !== classRoom.id) {
+    return null;
+  }
+
+  const assignmentItem = await withSubmissionCount(assignment);
+
+  return {
+    classRoom,
+    assignment: assignmentItem,
+    targetedObjectives: assignmentItem.targetedObjectives,
+  };
+}
+
 function getProviderIssueMessage(fallback: string) {
   return getLastLmsProviderIssue() ?? fallback;
 }
@@ -155,17 +169,11 @@ export const classflowService = {
       lmsProvider.getAssignmentById(assignmentId),
     ]);
 
-    if (!classRoom || !assignment || assignment.classId !== classRoom.id) {
+    if (!classRoom || !assignment) {
       return null;
     }
 
-    const assignmentItem = await withSubmissionCount(assignment);
-
-    return {
-      classRoom,
-      assignment: assignmentItem,
-      targetedObjectives: assignmentItem.targetedObjectives,
-    };
+    return buildAssignmentPageData(classRoom, assignment);
   },
 
   async getClassPageDataForLaunchContext(launchContext: IframeLaunchContext): Promise<ClassPageData | null> {
@@ -206,7 +214,7 @@ export const classflowService = {
       ]);
 
       if (classRoom && assignment) {
-        return this.getAssignmentPageData(classRoom.id, assignment.id);
+        return buildAssignmentPageData(classRoom, assignment);
       }
     }
 
@@ -229,7 +237,7 @@ export const classflowService = {
       );
 
       if (matchedAssignment) {
-        return this.getAssignmentPageData(classRoom.id, matchedAssignment.id);
+        return buildAssignmentPageData(classRoom, matchedAssignment);
       }
     }
 

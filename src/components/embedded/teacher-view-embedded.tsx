@@ -11,6 +11,8 @@ type TeacherViewEmbeddedProps = {
   classCards?: DashboardClassCard[];
   classRoom?: ClassRoom;
   assignments?: AssignmentListItem[];
+  assignment?: AssignmentListItem | null;
+  assignmentContextIssue?: string | null;
   reviewHref?: string;
 };
 
@@ -18,10 +20,12 @@ export function TeacherViewEmbedded({
   classCards = [],
   classRoom,
   assignments = [],
+  assignment = null,
+  assignmentContextIssue = null,
   reviewHref,
 }: TeacherViewEmbeddedProps) {
   const primaryClass = classRoom ?? classCards[0]?.classRoom ?? null;
-  const primaryAssignment = assignments[0] ?? null;
+  const primaryAssignment = assignment ?? assignments[0] ?? null;
   const totalAssignments =
     assignments.length > 0
       ? assignments.length
@@ -61,9 +65,19 @@ export function TeacherViewEmbedded({
                   ? `${primaryClass.title}${primaryClass.section ? ` · ${primaryClass.section}` : ""}`
                   : "No specific class context was supplied in this simulation."}
               </p>
+              {primaryAssignment ? (
+                <p className="font-medium text-foreground">
+                  Assignment: {primaryAssignment.title}
+                </p>
+              ) : null}
               <p className="text-muted-foreground">
                 {totalAssignments} assignment{totalAssignments === 1 ? "" : "s"} available for review.
               </p>
+              {assignmentContextIssue ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900/80">
+                  {assignmentContextIssue}
+                </p>
+              ) : null}
             </div>
           </div>
 

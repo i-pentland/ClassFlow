@@ -2,15 +2,19 @@ import { useEffect, useState } from "react";
 import { useLoaderData, useLocation } from "react-router-dom";
 
 import { StudentWorkReviewPanel } from "@/components/embedded/student-work-review-panel";
-import { EmbeddedAppShell } from "@/components/layouts/embedded-app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getIframeLaunchContextFromLocation } from "@/features/iframe-context/iframe-context.service";
 import { classflowService } from "@/services/classflowService";
 import type { AssignmentPageData, ResolvedAnalysisPattern } from "@/types/view-models";
 
+type AddonStudentWorkReviewLoaderData = {
+  assignmentData: AssignmentPageData | null;
+  assignmentContextIssue: string | null;
+};
+
 export function AddonStudentWorkReviewPage() {
-  const assignmentData = useLoaderData() as AssignmentPageData | null;
+  const { assignmentData, assignmentContextIssue } = useLoaderData() as AddonStudentWorkReviewLoaderData;
   const location = useLocation();
   const launchContext = getIframeLaunchContextFromLocation(location.pathname, location.search);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -27,20 +31,17 @@ export function AddonStudentWorkReviewPage() {
 
   if (!assignmentData) {
     return (
-      <EmbeddedAppShell>
-        <section className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
-          <Card className="border-white/80 bg-white/92">
-            <CardHeader>
-              <CardTitle>Student work review context not available</CardTitle>
-              <CardDescription>
-                This hosted add-on route expects an assignment context from Google Classroom. For
-                local simulation, add `courseId` and `assignmentId` query params that match a known
-                class and assignment reference.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </section>
-      </EmbeddedAppShell>
+      <section className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
+        <Card className="border-white/80 bg-white/92">
+          <CardHeader>
+            <CardTitle>Student work review context not available</CardTitle>
+            <CardDescription>
+              {assignmentContextIssue ??
+                "This hosted add-on route expects an assignment context from Google Classroom. For local simulation, add `courseId` and `assignmentId` query params that match a known class and assignment reference."}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </section>
     );
   }
 
@@ -66,7 +67,7 @@ export function AddonStudentWorkReviewPage() {
   };
 
   return (
-    <EmbeddedAppShell>
+    <>
       <section className="mx-auto max-w-5xl px-4 pt-6 sm:px-6 lg:px-8">
         {launchContext.lmsSubmissionId ? (
           <Card className="border-amber-200/70 bg-amber-50/80">
@@ -100,6 +101,6 @@ export function AddonStudentWorkReviewPage() {
         acknowledgedPatternIds={acknowledgedPatternIds}
         onToggleAcknowledge={handleToggleAcknowledge}
       />
-    </EmbeddedAppShell>
+    </>
   );
 }

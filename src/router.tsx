@@ -1,9 +1,11 @@
 import { createBrowserRouter, redirect } from "react-router-dom";
 
 import { ProtectedRoute } from "@/components/auth/protected-route";
+import { AddonRouteLayout } from "@/components/layouts/addon-route-layout";
 import { getIframeLaunchContextFromUrl } from "@/features/iframe-context/iframe-context.service";
 import { buildAuthRedirectUrl } from "@/lib/auth-intended-route";
 import { getCurrentSession, getReadableAuthError } from "@/lib/auth";
+import { getLastLmsProviderIssue } from "@/services/lms/lms.provider";
 import { AddonAttachmentDiscoveryPage } from "@/pages/addon-attachment-discovery-page";
 import { AddonStudentWorkReviewPage } from "@/pages/addon-student-work-review-page";
 import { AddonTeacherViewPage } from "@/pages/addon-teacher-view-page";
@@ -88,51 +90,85 @@ export const router = createBrowserRouter([
         },
       },
       {
-        path: "/addon/attachment-discovery",
-        element: <AddonAttachmentDiscoveryPage />,
-        loader: async ({ request }) => {
-          await requireAuthenticatedSession(request);
-          return classflowService.getDashboardClasses();
-        },
-      },
-      {
-        path: "/addon/teacher-view",
-        element: <AddonTeacherViewPage />,
-        loader: async ({ request }) => {
-          await requireAuthenticatedSession(request);
-          const url = new URL(request.url);
-          const launchContext = getIframeLaunchContextFromUrl(url);
-          const [dashboardClasses, classPageData, assignmentData] = await Promise.all([
-            classflowService.getDashboardClasses(),
-            classflowService.getClassPageDataForLaunchContext(launchContext),
-            classflowService.getAssignmentPageDataForLaunchContext(launchContext),
-          ]);
+        path: "/addon",
+        element: <AddonRouteLayout />,
+        children: [
+          {
+            path: "attachment-discovery",
+            element: <AddonAttachmentDiscoveryPage />,
+            loader: async ({ request }) => {
+              await requireAuthenticatedSession(request);
+              return classflowService.getDashboardClasses();
+            },
+          },
+          {
+            path: "teacher-view",
+            element: <AddonTeacherViewPage />,
+            loader: async ({ request }) => {
+              await requireAuthenticatedSession(request);
+              const url = new URL(request.url);
+              const launchContext = getIframeLaunchContextFromUrl(url);
+              let assignmentData = null;
+              let assignmentContextIssue: string | null = null;
 
-          const reviewHref = assignmentData
-            ? `/addon/student-work-review?source=classroom_addon&courseId=${encodeURIComponent(
-                assignmentData.classRoom.sourceCourseRef,
-              )}&assignmentId=${encodeURIComponent(assignmentData.assignment.sourceAssignmentRef)}${
-                launchContext.lmsSubmissionId ? `&submissionId=${encodeURIComponent(launchContext.lmsSubmissionId)}` : ""
-              }`
-            : "/addon/student-work-review?source=classroom_addon";
+              try {
+                assignmentData = await classflowService.getAssignmentPageDataForLaunchContext(launchContext);
+              } catch {
+                assignmentContextIssue =
+                  getLastLmsProviderIssue() ??
+                  "We could not resolve the selected Google Classroom assignment for this embedded view.";
+              }
 
-          return {
-            dashboardClasses,
-            classPageData,
-            reviewHref,
-          };
-        },
-      },
-      {
-        path: "/addon/student-work-review",
-        element: <AddonStudentWorkReviewPage />,
-        loader: async ({ request }) => {
-          await requireAuthenticatedSession(request);
-          const url = new URL(request.url);
-          const launchContext = getIframeLaunchContextFromUrl(url);
+              const [dashboardClasses, classPageData] = await Promise.all([
+                classflowService.getDashboardClasses(),
+                classflowService.getClassPageDataForLaunchContext(launchContext),
+              ]);
 
-          return classflowService.getAssignmentPageDataForLaunchContext(launchContext);
-        },
+              const reviewHref = assignmentData
+                ? `/addon/student-work-review?source=classroom_addon&courseId=${encodeURIComponent(
+                    assignmentData.classRoom.sourceCourseRef,
+                  )}&assignmentId=${encodeURIComponent(assignmentData.assignment.sourceAssignmentRef)}${
+                    launchContext.lmsSubmissionId ? `&submissionId=${encodeURIComponent(launchContext.lmsSubmissionId)}` : ""
+                  }`
+                : "/addon/student-work-review?source=classroom_addon";
+
+              return {
+                dashboardClasses,
+                classPageData,
+                assignmentData,
+                assignmentContextIssue,
+                reviewHref,
+              };
+            },
+          },
+          {
+            path: "student-work-review",
+            element: <AddonStudentWorkReviewPage />,
+            loader: async ({ request }) => {
+              await requireAuthenticatedSession(request);
+              const url = new URL(request.url);
+              const launchContext = getIframeLaunchContextFromUrl(url);
+              try {
+                const assignmentData = await classflowService.getAssignmentPageDataForLaunchContext(launchContext);
+
+                return {
+                  assignmentData,
+                  assignmentContextIssue:
+                    assignmentData || !launchContext.lmsAssignmentId
+                      ? null
+                      : "We could not resolve that Google Classroom assignment for student work review.",
+                };
+              } catch {
+                return {
+                  assignmentData: null,
+                  assignmentContextIssue:
+                    getLastLmsProviderIssue() ??
+                    "We could not resolve the selected Google Classroom assignment for student work review.",
+                };
+              }
+            },
+          },
+        ],
       },
       {
         path: "/class/:classId",
