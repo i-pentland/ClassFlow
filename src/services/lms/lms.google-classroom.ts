@@ -7,6 +7,7 @@ import type {
   SubmissionAttachment,
   SubmissionReference,
 } from "@/services/lms/lms.types";
+import type { StudentWorkReviewDebugState } from "@/types/view-models";
 import { getGoogleAccessToken } from "@/services/auth/auth.service";
 
 type GoogleClassroomCourse = {
@@ -46,12 +47,48 @@ type GoogleClassroomStudentSubmission = {
   updateTime?: string;
   creationTime?: string;
   late?: boolean;
+  assignmentSubmission?: {
+    attachments?: GoogleClassroomAttachment[];
+  };
+  shortAnswerSubmission?: {
+    answer?: string;
+  };
 };
 
 type GoogleClassroomStudentSubmissionsResponse = {
   studentSubmissions?: GoogleClassroomStudentSubmission[];
   nextPageToken?: string;
 };
+
+type GoogleClassroomAttachment = {
+  driveFile?: {
+    id: string;
+    title?: string;
+    alternateLink?: string;
+  };
+  link?: {
+    url?: string;
+    title?: string;
+  };
+  form?: {
+    url?: string;
+    title?: string;
+  };
+  youtubeVideo?: {
+    id?: string;
+    title?: string;
+    alternateLink?: string;
+  };
+};
+
+type GoogleDriveFileMetadata = {
+  id: string;
+  name?: string;
+  mimeType?: string;
+  webViewLink?: string;
+};
+
+let lastGoogleSubmissionFetchDebugState: StudentWorkReviewDebugState | null = null;
 
 // Official Google Classroom add-on style scaffold.
 // This file is the future integration seam for Classroom launch context, coursework,
@@ -102,7 +139,95 @@ async function fetchGoogleClassroomJson<T>(config: GoogleClassroomScaffoldConfig
   }
 
   if (!response.ok) {
-    throw new Error(`Classroom request failed with ${response.status} ${response.statusText}.`);
+    let errorDetails = "";
+
+    try {
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const body = (await response.json()) as { error?: { message?: string; status?: string } };
+        errorDetails = body.error?.message ?? body.error?.status ?? "";
+      } else {
+        errorDetails = (await response.text()).trim();
+      }
+    } catch {
+      errorDetails = "";
+    }
+
+    throw new Error(
+      `Classroom request failed with ${response.status} ${response.statusText}.${errorDetails ? ` ${errorDetails}` : ""}`,
+    );
+  }
+
+  return (await response.json()) as T;
+}
+
+async function fetchGoogleApiText(path: string, searchParams?: URLSearchParams) {
+  const accessToken = await getAccessTokenOrThrow();
+  const requestUrl = new URL(path, "https://www.googleapis.com");
+
+  if (searchParams) {
+    requestUrl.search = searchParams.toString();
+  }
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorDetails = (await response.text()).trim();
+    throw new Error(
+      `Google API text request failed with ${response.status} ${response.statusText}.${errorDetails ? ` ${errorDetails}` : ""}`,
+    );
+  }
+
+  return response.text();
+}
+
+async function fetchGoogleApiBinary(path: string, searchParams?: URLSearchParams) {
+  const accessToken = await getAccessTokenOrThrow();
+  const requestUrl = new URL(path, "https://www.googleapis.com");
+
+  if (searchParams) {
+    requestUrl.search = searchParams.toString();
+  }
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorDetails = (await response.text()).trim();
+    throw new Error(
+      `Google API binary request failed with ${response.status} ${response.statusText}.${errorDetails ? ` ${errorDetails}` : ""}`,
+    );
+  }
+
+  return response.arrayBuffer();
+}
+
+async function fetchGoogleApiJson<T>(path: string, searchParams?: URLSearchParams) {
+  const accessToken = await getAccessTokenOrThrow();
+  const requestUrl = new URL(path, "https://www.googleapis.com");
+
+  if (searchParams) {
+    requestUrl.search = searchParams.toString();
+  }
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorDetails = (await response.text()).trim();
+    throw new Error(
+      `Google API metadata request failed with ${response.status} ${response.statusText}.${errorDetails ? ` ${errorDetails}` : ""}`,
+    );
   }
 
   return (await response.json()) as T;
@@ -256,6 +381,7 @@ function mapGoogleStudentSubmissionToReference(
   const studentRef = submission.userId ?? "unknown-student";
   const status = submission.state?.split("_").join(" ").toLowerCase() ?? "unknown status";
   const lateLabel = submission.late ? "Late" : "On time";
+  const shortAnswerText = submission.shortAnswerSubmission?.answer?.trim() || undefined;
 
   return {
     id: submission.id,
@@ -263,9 +389,10 @@ function mapGoogleStudentSubmissionToReference(
     studentId: studentRef,
     studentName: `Student ${studentRef}`,
     submittedAt: submission.updateTime ?? submission.creationTime ?? "",
-    contentType: "metadata",
-    contentPreview: `${status} · ${lateLabel}`,
+    contentType: shortAnswerText ? "text" : "metadata",
+    contentPreview: shortAnswerText ? shortAnswerText.slice(0, 140) : `${status} · ${lateLabel}`,
     sourceSubmissionRef: submission.id,
+    textContent: shortAnswerText,
   };
 }
 
@@ -274,61 +401,302 @@ async function listStudentSubmissionsForAssignmentPlaceholder(
   courseId: string,
   assignmentId: string,
 ): Promise<SubmissionReference[]> {
+  lastGoogleSubmissionFetchDebugState = {
+    providerName: "google_classroom",
+    courseId,
+    assignmentId,
+    currentSubmissionId: null,
+    requestMade: false,
+    assignmentResolved: true,
+    submissionFetchStatus: "not_attempted",
+    rawSubmissionCount: null,
+    mappedSubmissionCount: 0,
+    apiError: null,
+    rawSubmissionStateCounts: {},
+    notes: [],
+  };
   const submissions: SubmissionReference[] = [];
   let nextPageToken: string | undefined;
 
-  do {
-    const searchParams = new URLSearchParams();
-    searchParams.set("pageSize", "50");
+  try {
+    do {
+      const searchParams = new URLSearchParams();
+      searchParams.set("pageSize", "50");
 
-    if (nextPageToken) {
-      searchParams.set("pageToken", nextPageToken);
-    }
+      if (nextPageToken) {
+        searchParams.set("pageToken", nextPageToken);
+      }
 
-    const payload = await fetchGoogleClassroomJson<GoogleClassroomStudentSubmissionsResponse>(
-      config,
-      `/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(assignmentId)}/studentSubmissions`,
-      searchParams,
+      lastGoogleSubmissionFetchDebugState.requestMade = true;
+      if (import.meta.env.DEV) {
+        console.info("[classflow][student-work-review] Requesting Google Classroom student submissions.", {
+          courseId,
+          assignmentId,
+          pageToken: nextPageToken ?? null,
+        });
+      }
+
+      const payload = await fetchGoogleClassroomJson<GoogleClassroomStudentSubmissionsResponse>(
+        config,
+        `/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(assignmentId)}/studentSubmissions`,
+        searchParams,
+      );
+
+      if (!payload) {
+        lastGoogleSubmissionFetchDebugState.submissionFetchStatus = "failed";
+        lastGoogleSubmissionFetchDebugState.apiError =
+          "Google Classroom returned 404 for student submissions. Verify courseId, assignmentId, and teacher access.";
+        lastGoogleSubmissionFetchDebugState.notes.push(
+          "The student submissions endpoint returned 404 before any submission metadata could be mapped.",
+        );
+        if (import.meta.env.DEV) {
+          console.warn("[classflow][student-work-review] Student submissions request returned 404.", {
+            courseId,
+            assignmentId,
+          });
+        }
+        return [];
+      }
+
+      const rawSubmissions = payload.studentSubmissions ?? [];
+      lastGoogleSubmissionFetchDebugState.rawSubmissionCount =
+        (lastGoogleSubmissionFetchDebugState.rawSubmissionCount ?? 0) + rawSubmissions.length;
+      for (const submission of rawSubmissions) {
+        const stateKey = submission.state ?? "UNKNOWN";
+        lastGoogleSubmissionFetchDebugState.rawSubmissionStateCounts[stateKey] =
+          (lastGoogleSubmissionFetchDebugState.rawSubmissionStateCounts[stateKey] ?? 0) + 1;
+      }
+
+      submissions.push(...rawSubmissions.map((submission) => mapGoogleStudentSubmissionToReference(assignmentId, submission)));
+      nextPageToken = payload.nextPageToken;
+    } while (nextPageToken);
+  } catch (error) {
+    lastGoogleSubmissionFetchDebugState.submissionFetchStatus = "failed";
+    lastGoogleSubmissionFetchDebugState.apiError = error instanceof Error ? error.message : "Unknown submission fetch error.";
+    lastGoogleSubmissionFetchDebugState.notes.push(
+      "The Google Classroom request threw before submission metadata could be returned to the embedded view.",
     );
-
-    if (!payload) {
-      return [];
+    if (import.meta.env.DEV) {
+      console.warn("[classflow][student-work-review] Student submissions request failed.", {
+        courseId,
+        assignmentId,
+        error,
+      });
     }
+    throw error;
+  }
 
-    submissions.push(
-      ...(payload.studentSubmissions ?? []).map((submission) =>
-        mapGoogleStudentSubmissionToReference(assignmentId, submission),
-      ),
-    );
-    nextPageToken = payload.nextPageToken;
-  } while (nextPageToken);
+  lastGoogleSubmissionFetchDebugState.mappedSubmissionCount = submissions.length;
 
   if (submissions.length === 0) {
+    lastGoogleSubmissionFetchDebugState.submissionFetchStatus =
+      (lastGoogleSubmissionFetchDebugState.rawSubmissionCount ?? 0) > 0 ? "mapping_zero" : "empty";
+    lastGoogleSubmissionFetchDebugState.notes.push(
+      (lastGoogleSubmissionFetchDebugState.rawSubmissionCount ?? 0) > 0
+        ? "Google returned submission records, but none survived mapping."
+        : "Google returned zero student submissions for this assignment.",
+    );
     logPlaceholderBoundary(
       `listStudentSubmissionsForAssignment() found no student submissions for coursework ${assignmentId}.`,
     );
+  } else {
+    lastGoogleSubmissionFetchDebugState.submissionFetchStatus = "success";
+  }
+
+  if (import.meta.env.DEV) {
+    console.info("[classflow][student-work-review] Student submission mapping complete.", {
+      courseId,
+      assignmentId,
+      rawSubmissionCount: lastGoogleSubmissionFetchDebugState.rawSubmissionCount,
+      mappedSubmissionCount: submissions.length,
+      rawSubmissionStateCounts: lastGoogleSubmissionFetchDebugState.rawSubmissionStateCounts,
+      filteringApplied: "none",
+      status: lastGoogleSubmissionFetchDebugState.submissionFetchStatus,
+    });
   }
 
   return submissions;
 }
 
 async function listStudentSubmissionsPlaceholder(
-  _config: GoogleClassroomScaffoldConfig,
-  _assignmentId: string,
+  config: GoogleClassroomScaffoldConfig,
+  assignmentId: string,
 ): Promise<SubmissionReference[]> {
-  // TODO: Fetch submission metadata from Google Classroom. Keep raw work transient.
-  logPlaceholderBoundary("listStudentSubmissions() is using the development scaffold.");
+  const courses = await listCoursesPlaceholder(config);
+
+  for (const course of courses) {
+    const assignment = await getAssignmentPlaceholder(config, course.id, assignmentId);
+
+    if (!assignment) {
+      continue;
+    }
+
+    return listStudentSubmissionsForAssignmentPlaceholder(
+      config,
+      assignment.sourceCourseRef,
+      assignment.sourceAssignmentRef,
+    );
+  }
+
+  logPlaceholderBoundary(`listStudentSubmissions() could not resolve coursework ${assignmentId}.`);
   return [];
 }
 
 async function getSubmissionAttachmentsPlaceholder(
-  _config: GoogleClassroomScaffoldConfig,
-  _submissionRef: string,
+  config: GoogleClassroomScaffoldConfig,
+  courseId: string,
+  assignmentId: string,
+  submissionRef: string,
 ): Promise<SubmissionAttachment[]> {
-  // TODO: Return attachment metadata only. Actual file/text extraction belongs in the
-  // transient submission ingestion layer and must not persist raw student files.
-  logPlaceholderBoundary("getSubmissionAttachments() is using the development scaffold.");
-  return [];
+  const payload = await fetchGoogleClassroomJson<GoogleClassroomStudentSubmission>(
+    config,
+    `/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(assignmentId)}/studentSubmissions/${encodeURIComponent(submissionRef)}`,
+  );
+
+  if (!payload) {
+    return [];
+  }
+
+  const attachments: SubmissionAttachment[] = [];
+  const shortAnswerText = payload.shortAnswerSubmission?.answer?.trim();
+
+  if (shortAnswerText) {
+    attachments.push({
+      id: `${submissionRef}-short-answer`,
+      submissionRef,
+      title: "Short answer response",
+      mimeType: "text/plain",
+      kind: "short_answer",
+      textContent: shortAnswerText,
+    });
+  }
+
+  for (const attachment of payload.assignmentSubmission?.attachments ?? []) {
+    if (attachment.driveFile?.id) {
+      const driveMetadata = await fetchGoogleApiJson<GoogleDriveFileMetadata>(
+        `/drive/v3/files/${encodeURIComponent(attachment.driveFile.id)}`,
+        new URLSearchParams({
+          fields: "id,name,mimeType,webViewLink",
+        }),
+      );
+
+      attachments.push({
+        id: attachment.driveFile.id,
+        submissionRef,
+        title: driveMetadata.name ?? attachment.driveFile.title ?? "Drive attachment",
+        mimeType: driveMetadata.mimeType ?? "application/octet-stream",
+        kind: "drive_file",
+        url: driveMetadata.webViewLink ?? attachment.driveFile.alternateLink,
+        driveFileId: attachment.driveFile.id,
+      });
+      continue;
+    }
+
+    if (attachment.link?.url) {
+      attachments.push({
+        id: `${submissionRef}-link-${attachments.length + 1}`,
+        submissionRef,
+        title: attachment.link.title ?? "Link attachment",
+        mimeType: "text/uri-list",
+        kind: "link",
+        url: attachment.link.url,
+      });
+      continue;
+    }
+
+    if (attachment.form?.url) {
+      attachments.push({
+        id: `${submissionRef}-form-${attachments.length + 1}`,
+        submissionRef,
+        title: attachment.form.title ?? "Form attachment",
+        mimeType: "application/vnd.google-apps.form",
+        kind: "form",
+        url: attachment.form.url,
+      });
+      continue;
+    }
+
+    if (attachment.youtubeVideo?.alternateLink || attachment.youtubeVideo?.id) {
+      attachments.push({
+        id: `${submissionRef}-youtube-${attachments.length + 1}`,
+        submissionRef,
+        title: attachment.youtubeVideo.title ?? "YouTube attachment",
+        mimeType: "video/youtube",
+        kind: "youtube",
+        url: attachment.youtubeVideo.alternateLink,
+      });
+    }
+  }
+
+  if (attachments.length === 0) {
+    logPlaceholderBoundary(`No supported submission attachments were returned for ${submissionRef}.`);
+  }
+
+  return attachments;
+}
+
+async function readSubmissionAttachmentTextPlaceholder(
+  attachment: SubmissionAttachment,
+): Promise<{ textContent: string; contentType: "google_doc" | "plain_text" | "short_answer" }> {
+  if (attachment.kind === "short_answer" && attachment.textContent) {
+    return {
+      textContent: attachment.textContent,
+      contentType: "short_answer",
+    };
+  }
+
+  if (!attachment.driveFileId) {
+    throw new Error(`Attachment ${attachment.id} does not expose a readable Drive file id.`);
+  }
+
+  if (attachment.mimeType === "application/vnd.google-apps.document") {
+    const textContent = await fetchGoogleApiText(
+      `/drive/v3/files/${encodeURIComponent(attachment.driveFileId)}/export`,
+      new URLSearchParams({
+        mimeType: "text/plain",
+      }),
+    );
+
+    return {
+      textContent,
+      contentType: "google_doc",
+    };
+  }
+
+  if (attachment.mimeType === "text/plain") {
+    const textContent = await fetchGoogleApiText(
+      `/drive/v3/files/${encodeURIComponent(attachment.driveFileId)}`,
+      new URLSearchParams({
+        alt: "media",
+      }),
+    );
+
+    return {
+      textContent,
+      contentType: "plain_text",
+    };
+  }
+
+  throw new Error(`Attachment ${attachment.id} has unsupported mime type ${attachment.mimeType}.`);
+}
+
+async function readSubmissionAttachmentBinaryPlaceholder(
+  attachment: SubmissionAttachment,
+): Promise<ArrayBuffer> {
+  if (!attachment.driveFileId) {
+    throw new Error(`Attachment ${attachment.id} does not expose a readable Drive file id.`);
+  }
+
+  if (attachment.mimeType !== "application/pdf") {
+    throw new Error(`Attachment ${attachment.id} has unsupported binary mime type ${attachment.mimeType}.`);
+  }
+
+  return fetchGoogleApiBinary(
+    `/drive/v3/files/${encodeURIComponent(attachment.driveFileId)}`,
+    new URLSearchParams({
+      alt: "media",
+    }),
+  );
 }
 
 export function createGoogleClassroomProvider(): LmsProvider {
@@ -357,8 +725,20 @@ export function createGoogleClassroomProvider(): LmsProvider {
       // TODO: Replace with live student submission metadata list after coursework wiring is complete.
       return listStudentSubmissionsPlaceholder(config, assignmentId);
     },
+    async getSubmissionAttachmentsForAssignment(courseId: string, assignmentId: string, submissionRef: string) {
+      return getSubmissionAttachmentsPlaceholder(config, courseId, assignmentId, submissionRef);
+    },
     async getSubmissionAttachments(submissionRef: string) {
-      return getSubmissionAttachmentsPlaceholder(config, submissionRef);
+      // Legacy assignment-id-only attachment lookup remains unsupported for live Google
+      // routes because student submissions are scoped by course + assignment.
+      logPlaceholderBoundary(`getSubmissionAttachments(${submissionRef}) requires course-scoped context.`);
+      return [];
+    },
+    async readSubmissionAttachmentText(attachment: SubmissionAttachment) {
+      return readSubmissionAttachmentTextPlaceholder(attachment);
+    },
+    async readSubmissionAttachmentBinary(attachment: SubmissionAttachment) {
+      return readSubmissionAttachmentBinaryPlaceholder(attachment);
     },
     async getClasses() {
       return this.listCourses();
@@ -400,4 +780,8 @@ export function createGoogleClassroomProvider(): LmsProvider {
       return this.listStudentSubmissions(assignmentId);
     },
   };
+}
+
+export function getLastGoogleSubmissionFetchDebugState() {
+  return lastGoogleSubmissionFetchDebugState;
 }

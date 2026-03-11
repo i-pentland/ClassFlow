@@ -3,6 +3,7 @@ import type { AnalysisResult, RunAssignmentAnalysisInput } from "@/services/anal
 
 export interface AssignmentAnalysisProvider {
   runAssignmentAnalysis(input: RunAssignmentAnalysisInput): Promise<AnalysisResult>;
+  generateStructuredObservations(input: RunAssignmentAnalysisInput): Promise<AnalysisResult>;
 }
 
 export const analysisProvider: AssignmentAnalysisProvider = createMockAnalysisProvider();

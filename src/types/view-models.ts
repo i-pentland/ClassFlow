@@ -1,5 +1,6 @@
 import type { AnalysisPattern, Assignment, ClassRoom, LearningObjective, Student } from "@/types/domain";
 import type { SubmissionReference } from "@/services/lms/lms.types";
+import type { SubmissionPreparationSummary } from "@/services/submissions/submission-extraction.types";
 
 export type DashboardClassCard = {
   classRoom: ClassRoom;
@@ -8,6 +9,11 @@ export type DashboardClassCard = {
     id: string;
     title: string;
     sourceAssignmentRef: string;
+    debugSubmissions?: {
+      id: string;
+      sourceSubmissionRef: string;
+      studentName: string;
+    }[];
   }[];
 };
 
@@ -40,5 +46,24 @@ export type StudentWorkReviewPageData = {
   assignmentContextIssue: string | null;
   submissionReferences: SubmissionReference[];
   submissionLoadIssue: string | null;
+  submissionPreparationSummary: SubmissionPreparationSummary | null;
+  observationPatterns: ResolvedAnalysisPattern[];
+  observationIssue: string | null;
   selectedSubmission: SubmissionReference | null;
+  debugState: StudentWorkReviewDebugState | null;
+};
+
+export type StudentWorkReviewDebugState = {
+  providerName: string;
+  courseId: string | null;
+  assignmentId: string | null;
+  currentSubmissionId: string | null;
+  requestMade: boolean;
+  assignmentResolved: boolean;
+  submissionFetchStatus: "not_attempted" | "success" | "empty" | "failed" | "mapping_zero";
+  rawSubmissionCount: number | null;
+  mappedSubmissionCount: number;
+  apiError: string | null;
+  rawSubmissionStateCounts: Record<string, number>;
+  notes: string[];
 };

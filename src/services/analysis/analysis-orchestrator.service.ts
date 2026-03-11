@@ -3,7 +3,10 @@ import { analysisProvider } from "@/services/analysis/analysis.provider";
 import type { AnalysisResult } from "@/services/analysis/analysis.types";
 import { persistDerivedInsights } from "@/services/insights/insights.repository";
 import { lmsProvider } from "@/services/lms/lms.provider";
-import { ingestAssignmentSubmissions } from "@/services/submissions/submission-ingestion.service";
+import {
+  discardPreparedSubmissionInputs,
+  ingestAssignmentSubmissions,
+} from "@/services/submissions/submission-ingestion.service";
 
 export async function runAssignmentAnalysis(params: {
   classId: string;
@@ -30,7 +33,10 @@ export async function runAssignmentAnalysis(params: {
   // assignment work just-in-time, analyzes it, and avoids storing raw student content.
   const [objectives, ingestedSubmissions] = await Promise.all([
     lmsProvider.getLearningObjectivesByIds(assignment.targetedObjectiveIds),
-    ingestAssignmentSubmissions(assignment.id),
+    ingestAssignmentSubmissions({
+      courseId: classRoom.sourceCourseRef,
+      assignmentId: assignment.sourceAssignmentRef,
+    }),
   ]);
 
   let result: AnalysisResult;
@@ -47,7 +53,7 @@ export async function runAssignmentAnalysis(params: {
   } finally {
     // Step 3: explicitly clear the transient array reference after analysis.
     // Derived insights may persist downstream, but raw text content must not.
-    ingestedSubmissions.length = 0;
+    discardPreparedSubmissionInputs(ingestedSubmissions);
   }
 
   if (params.persistInsights ?? true) {

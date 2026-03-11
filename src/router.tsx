@@ -149,7 +149,20 @@ export const router = createBrowserRouter([
               const url = new URL(request.url);
               const launchContext = getIframeLaunchContextFromUrl(url);
               try {
-                return classflowService.getStudentWorkReviewPageDataForLaunchContext(launchContext);
+                const data = await classflowService.getStudentWorkReviewPageDataForLaunchContext(launchContext);
+
+                if (import.meta.env.DEV) {
+                  console.info("[classflow][student-work-review] Loader resolved.", {
+                    courseId: launchContext.lmsCourseId ?? null,
+                    assignmentId: launchContext.lmsAssignmentId ?? null,
+                    submissionId: launchContext.lmsSubmissionId ?? null,
+                    assignmentResolved: Boolean(data.assignmentData),
+                    submissionCount: data.submissionReferences.length,
+                    debugState: data.debugState,
+                  });
+                }
+
+                return data;
               } catch {
                 return {
                   assignmentData: null,
@@ -158,7 +171,11 @@ export const router = createBrowserRouter([
                     "We could not resolve the selected Google Classroom assignment for student work review.",
                   submissionReferences: [],
                   submissionLoadIssue: null,
+                  submissionPreparationSummary: null,
+                  observationPatterns: [],
+                  observationIssue: null,
                   selectedSubmission: null,
+                  debugState: null,
                 };
               }
             },

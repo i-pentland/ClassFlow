@@ -18,7 +18,16 @@ export interface LmsProvider {
   getAssignment(courseId: string, assignmentId: string): Promise<Assignment | null>;
   listStudentSubmissionsForAssignment(courseId: string, assignmentId: string): Promise<SubmissionReference[]>;
   listStudentSubmissions(assignmentId: string): Promise<SubmissionReference[]>;
+  getSubmissionAttachmentsForAssignment(
+    courseId: string,
+    assignmentId: string,
+    submissionRef: string,
+  ): Promise<SubmissionAttachment[]>;
   getSubmissionAttachments(submissionRef: string): Promise<SubmissionAttachment[]>;
+  readSubmissionAttachmentText(
+    attachment: SubmissionAttachment,
+  ): Promise<{ textContent: string; contentType: "google_doc" | "plain_text" | "short_answer" }>;
+  readSubmissionAttachmentBinary(attachment: SubmissionAttachment): Promise<ArrayBuffer>;
   getClasses(): Promise<Class[]>;
   getClassById(classId: string): Promise<Class | null>;
   getAssignmentsByClass(classId: string): Promise<Assignment[]>;
@@ -39,7 +48,10 @@ const unsafeEntityFallbackOperations = new Set([
   "listStudentSubmissionsForAssignment",
   "getAssignmentById",
   "listStudentSubmissions",
+  "getSubmissionAttachmentsForAssignment",
   "getSubmissionAttachments",
+  "readSubmissionAttachmentText",
+  "readSubmissionAttachmentBinary",
   "getSubmissionReferencesByAssignment",
 ]);
 
@@ -89,8 +101,16 @@ export const lmsProvider: LmsProvider = {
     ),
   listStudentSubmissions: (assignmentId) =>
     withFallback("listStudentSubmissions", (provider) => provider.listStudentSubmissions(assignmentId)),
+  getSubmissionAttachmentsForAssignment: (courseId, assignmentId, submissionRef) =>
+    withFallback("getSubmissionAttachmentsForAssignment", (provider) =>
+      provider.getSubmissionAttachmentsForAssignment(courseId, assignmentId, submissionRef),
+    ),
   getSubmissionAttachments: (submissionRef) =>
     withFallback("getSubmissionAttachments", (provider) => provider.getSubmissionAttachments(submissionRef)),
+  readSubmissionAttachmentText: (attachment) =>
+    withFallback("readSubmissionAttachmentText", (provider) => provider.readSubmissionAttachmentText(attachment)),
+  readSubmissionAttachmentBinary: (attachment) =>
+    withFallback("readSubmissionAttachmentBinary", (provider) => provider.readSubmissionAttachmentBinary(attachment)),
   getClasses: () => withFallback("getClasses", (provider) => provider.getClasses()),
   getClassById: (classId) => withFallback("getClassById", (provider) => provider.getClassById(classId)),
   getAssignmentsByClass: (classId) => withFallback("getAssignmentsByClass", (provider) => provider.getAssignmentsByClass(classId)),
@@ -105,4 +125,8 @@ export const lmsProvider: LmsProvider = {
 
 export function getLastLmsProviderIssue() {
   return lastLmsProviderIssue;
+}
+
+export function getConfiguredLmsProviderName() {
+  return configuredProviderName;
 }

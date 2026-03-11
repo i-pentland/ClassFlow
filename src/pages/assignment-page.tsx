@@ -74,6 +74,7 @@ export function AssignmentPage() {
           submissionCount={assignment.submissionCount}
           submissionReferences={[]}
           selectedSubmission={null}
+          submissionPreparationSummary={null}
           targetedObjectives={targetedObjectives}
           patterns={patterns}
           hasAnalyzed={hasAnalyzed}
@@ -118,7 +119,7 @@ export function AssignmentPage() {
                   <p className="mt-2 font-semibold">{assignment.dueDate}</p>
                 </div>
                 <div className="rounded-[1.25rem] bg-secondary/60 p-4">
-                  <p className="text-sm text-muted-foreground">Submissions reviewed</p>
+                  <p className="text-sm text-muted-foreground">Student submissions</p>
                   <p className="mt-2 font-semibold">{assignment.submissionCount}</p>
                 </div>
               </div>

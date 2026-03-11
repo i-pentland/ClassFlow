@@ -1,11 +1,19 @@
 import {
+  getConfiguredLmsProviderName,
   getLastLmsProviderIssue,
   lmsProvider,
 } from "@/services/lms/lms.provider";
+import { getLastGoogleSubmissionFetchDebugState } from "@/services/lms/lms.google-classroom";
+import { analysisProvider } from "@/services/analysis/analysis.provider";
 import type { Assignment, SubmissionReference } from "@/services/lms/lms.types";
 import { runAssignmentAnalysis } from "@/services/analysis/analysis-orchestrator.service";
 import type { DerivedPattern } from "@/services/analysis/analysis.types";
 import type { IframeLaunchContext } from "@/features/iframe-context/iframe-context.types";
+import {
+  discardPreparedSubmissionInputs,
+  prepareAssignmentSubmissionInputs,
+} from "@/services/submissions/submission-ingestion.service";
+import type { SubmissionPreparationSummary } from "@/services/submissions/submission-extraction.types";
 import type { ClassRoom, LearningObjective, Student } from "@/types/domain";
 import type { ErrorPattern } from "@/services/insights/insights.types";
 import type {
@@ -14,6 +22,7 @@ import type {
   ClassPageData,
   DashboardClassCard,
   ResolvedAnalysisPattern,
+  StudentWorkReviewDebugState,
   StudentWorkReviewPageData,
 } from "@/types/view-models";
 
@@ -96,6 +105,82 @@ async function resolvePatterns(patterns: ErrorPattern[]): Promise<ResolvedAnalys
   );
 }
 
+async function buildStructuredObservationPreview(params: {
+  classRoom: ClassRoom;
+  assignment: AssignmentListItem;
+  targetedObjectives: LearningObjective[];
+  submissionReferences: SubmissionReference[];
+  launchContext: IframeLaunchContext;
+}): Promise<{ patterns: ResolvedAnalysisPattern[]; issue: string | null }> {
+  const { classRoom, assignment, targetedObjectives, submissionReferences, launchContext } = params;
+  const { inputs, summary } = await prepareAssignmentSubmissionInputs({
+    courseId: classRoom.sourceCourseRef,
+    assignmentId: assignment.sourceAssignmentRef,
+    submissionReferences,
+  });
+
+  if (summary.analyzableCount < 2) {
+    discardPreparedSubmissionInputs(inputs);
+    return {
+      patterns: [],
+      issue:
+        summary.analyzableCount === 0
+          ? "No analyzable submissions are available for recurring observation yet."
+          : "Only one analyzable submission is available, so recurring multi-student observations are not shown yet.",
+    };
+  }
+
+  try {
+    const result = await analysisProvider.generateStructuredObservations({
+      class: classRoom,
+      assignment,
+      objectives: targetedObjectives,
+      submissions: inputs,
+      launchContext,
+    });
+
+    const studentNameByRef = new Map(
+      submissionReferences.map((submission) => [
+        submission.studentId,
+        { id: submission.studentId, name: submission.studentName, lmsStudentRef: submission.studentId },
+      ]),
+    );
+
+    const resolvedPatterns = result.patterns
+      .filter((pattern) => pattern.affectedStudentRefs.length >= 2)
+      .map((pattern) => ({
+        id: `${assignment.id}-preview-${pattern.objectiveId}-${pattern.title}`,
+        assignmentId: assignment.id,
+        sourceAssignmentRef: assignment.sourceAssignmentRef,
+        sourceCourseRef: assignment.sourceCourseRef,
+        title: pattern.title,
+        description: pattern.description,
+        objectiveId: pattern.objectiveId,
+        relatedObjective:
+          targetedObjectives.find((objective) => objective.id === pattern.objectiveId) ??
+          targetedObjectives[0] ??
+          null,
+        affectedStudentRefs: pattern.affectedStudentRefs,
+        affectedStudents: pattern.affectedStudentRefs
+          .map((studentRef) => studentNameByRef.get(studentRef))
+          .filter((student): student is Student => Boolean(student)),
+        studentsAffected: pattern.affectedStudentRefs.length,
+        confidence: pattern.confidence,
+        dismissed: false,
+      }));
+
+    return {
+      patterns: resolvedPatterns,
+      issue:
+        resolvedPatterns.length === 0
+          ? "No recurring observations are available from the current analyzable submission set yet."
+          : null,
+    };
+  } finally {
+    discardPreparedSubmissionInputs(inputs);
+  }
+}
+
 export const classflowService = {
   async resolveLaunchTarget(launchContext: IframeLaunchContext): Promise<string | null> {
     const classes = await lmsProvider.getClasses();
@@ -140,15 +225,36 @@ export const classflowService = {
       classes.map(async (classRoom) => {
         try {
           const assignments = await lmsProvider.getAssignmentsByClass(classRoom.id);
+          const debugAssignments = await Promise.all(
+            assignments.map(async (assignment) => {
+              let submissions: SubmissionReference[] = [];
+
+              try {
+                submissions = await lmsProvider.listStudentSubmissionsForAssignment(
+                  assignment.sourceCourseRef,
+                  assignment.sourceAssignmentRef,
+                );
+              } catch {
+                submissions = [];
+              }
+
+              return {
+                id: assignment.id,
+                title: assignment.title,
+                sourceAssignmentRef: assignment.sourceAssignmentRef,
+                debugSubmissions: submissions.map((submission) => ({
+                  id: submission.id,
+                  sourceSubmissionRef: submission.sourceSubmissionRef,
+                  studentName: submission.studentName,
+                })),
+              };
+            }),
+          );
 
           return {
             classRoom,
             assignmentCount: assignments.length,
-            debugAssignments: assignments.map((assignment) => ({
-              id: assignment.id,
-              title: assignment.title,
-              sourceAssignmentRef: assignment.sourceAssignmentRef,
-            })),
+            debugAssignments,
           };
         } catch {
           return {
@@ -279,9 +385,29 @@ export const classflowService = {
   async getStudentWorkReviewPageDataForLaunchContext(
     launchContext: IframeLaunchContext,
   ): Promise<StudentWorkReviewPageData> {
+    const providerName = getConfiguredLmsProviderName();
+    const debugState: StudentWorkReviewDebugState = {
+      providerName,
+      courseId: launchContext.lmsCourseId ?? null,
+      assignmentId: launchContext.lmsAssignmentId ?? null,
+      currentSubmissionId: launchContext.lmsSubmissionId ?? null,
+      requestMade: false,
+      assignmentResolved: false,
+      submissionFetchStatus: "not_attempted",
+      rawSubmissionCount: null,
+      mappedSubmissionCount: 0,
+      apiError: null,
+      rawSubmissionStateCounts: {},
+      notes: [],
+    };
     const assignmentData = await this.getAssignmentPageDataForLaunchContext(launchContext);
 
     if (!assignmentData) {
+      debugState.apiError = "Assignment lookup failed before submission metadata could be requested.";
+      debugState.notes.push("The embedded route could not resolve the assignment context.");
+      if (import.meta.env.DEV) {
+        console.info("[classflow][student-work-review] Assignment context resolution failed.", debugState);
+      }
       return {
         assignmentData: null,
         assignmentContextIssue: launchContext.lmsAssignmentId
@@ -289,12 +415,19 @@ export const classflowService = {
           : null,
         submissionReferences: [],
         submissionLoadIssue: null,
+        submissionPreparationSummary: null,
+        observationPatterns: [],
+        observationIssue: null,
         selectedSubmission: null,
+        debugState,
       };
     }
 
+    debugState.assignmentResolved = true;
+
     let submissionReferences: SubmissionReference[] = [];
     let submissionLoadIssue: string | null = null;
+    let submissionPreparationSummary: SubmissionPreparationSummary | null = null;
 
     try {
       submissionReferences = await lmsProvider.listStudentSubmissionsForAssignment(
@@ -305,6 +438,80 @@ export const classflowService = {
       submissionLoadIssue =
         getLastLmsProviderIssue() ??
         "We could not load Google Classroom submission metadata for this assignment.";
+    }
+
+    const providerDebugState =
+      providerName === "google_classroom"
+        ? getLastGoogleSubmissionFetchDebugState()
+        : null;
+
+    if (providerDebugState) {
+      debugState.requestMade = providerDebugState.requestMade;
+      debugState.submissionFetchStatus = providerDebugState.submissionFetchStatus;
+      debugState.rawSubmissionCount = providerDebugState.rawSubmissionCount;
+      debugState.mappedSubmissionCount = providerDebugState.mappedSubmissionCount;
+      debugState.apiError = providerDebugState.apiError;
+      debugState.rawSubmissionStateCounts = providerDebugState.rawSubmissionStateCounts;
+      debugState.notes = providerDebugState.notes;
+    } else {
+      debugState.requestMade = true;
+      debugState.mappedSubmissionCount = submissionReferences.length;
+      debugState.submissionFetchStatus = submissionLoadIssue
+        ? "failed"
+        : submissionReferences.length === 0
+          ? "empty"
+          : "success";
+      debugState.apiError = submissionLoadIssue;
+    }
+
+    if (!submissionLoadIssue && debugState.submissionFetchStatus === "failed") {
+      submissionLoadIssue =
+        debugState.apiError ??
+        "Google Classroom submission metadata could not be loaded for this assignment.";
+    }
+
+    if (submissionReferences.length > 0) {
+      try {
+        const { inputs, summary } = await prepareAssignmentSubmissionInputs({
+          courseId: assignmentData.classRoom.sourceCourseRef,
+          assignmentId: assignmentData.assignment.sourceAssignmentRef,
+          submissionReferences,
+        });
+        submissionPreparationSummary = summary;
+
+        for (const input of inputs) {
+          input.textContent = "";
+        }
+        inputs.length = 0;
+      } catch (error) {
+        submissionLoadIssue =
+          submissionLoadIssue ??
+          (error instanceof Error
+            ? error.message
+            : "Transient submission extraction failed for this assignment.");
+      }
+    }
+
+    let observationPatterns: ResolvedAnalysisPattern[] = [];
+    let observationIssue: string | null = null;
+
+    if (submissionPreparationSummary) {
+      try {
+        const preview = await buildStructuredObservationPreview({
+          classRoom: assignmentData.classRoom,
+          assignment: assignmentData.assignment,
+          targetedObjectives: assignmentData.targetedObjectives,
+          submissionReferences,
+          launchContext,
+        });
+        observationPatterns = preview.patterns;
+        observationIssue = preview.issue;
+      } catch (error) {
+        observationIssue =
+          error instanceof Error
+            ? error.message
+            : "Structured observation generation failed for the current analyzable set.";
+      }
     }
 
     const selectedSubmission =
@@ -319,7 +526,11 @@ export const classflowService = {
       assignmentContextIssue: null,
       submissionReferences,
       submissionLoadIssue,
+      submissionPreparationSummary,
+      observationPatterns,
+      observationIssue,
       selectedSubmission,
+      debugState,
     };
   },
 

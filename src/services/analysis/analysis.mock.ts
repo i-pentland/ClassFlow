@@ -72,6 +72,81 @@ const mockPatternTemplatesByAssignmentId: Record<string, DerivedPattern[]> = {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function createDeterministicObservationPatterns(input: Parameters<AssignmentAnalysisProvider["generateStructuredObservations"]>[0]) {
+  const { assignment, objectives, submissions } = input;
+
+  if (submissions.length < 2) {
+    return [];
+  }
+
+  const primaryObjectiveId = objectives[0]?.id ?? assignment.targetedObjectiveIds[0] ?? "general-observation";
+  const secondaryObjectiveId = objectives[1]?.id ?? primaryObjectiveId;
+  const textSubmissions = submissions.map((submission) => ({
+    ...submission,
+    normalizedText: submission.textContent.toLowerCase(),
+    length: submission.textContent.trim().length,
+  }));
+
+  const patterns: DerivedPattern[] = [];
+
+  const briefReasoningRefs = textSubmissions
+    .filter((submission) => submission.length > 0 && submission.length < 240)
+    .map((submission) => submission.studentRef);
+
+  if (briefReasoningRefs.length >= 2) {
+    patterns.push({
+      title: "Responses stay brief and leave reasoning implicit",
+      description:
+        "Several analyzable submissions are short enough that the instructional reasoning may still be under-explained. This is a deterministic preview based on response length, not a final AI verdict.",
+      objectiveId: primaryObjectiveId,
+      affectedStudentRefs: briefReasoningRefs,
+      confidence: Math.min(0.55 + briefReasoningRefs.length / submissions.length / 2, 0.82),
+    });
+  }
+
+  const explanationGapRefs = textSubmissions
+    .filter((submission) => {
+      const mentionsEvidence = /["“”]|according to|evidence|quote|text says/.test(submission.normalizedText);
+      const includesReasoning = /because|shows|suggests|means|therefore|this matters|this reveals/.test(
+        submission.normalizedText,
+      );
+      return mentionsEvidence && !includesReasoning;
+    })
+    .map((submission) => submission.studentRef);
+
+  if (explanationGapRefs.length >= 2) {
+    patterns.push({
+      title: "Evidence appears without much explanation",
+      description:
+        "A recurring pattern suggests students may be naming evidence without fully connecting it to the instructional point. This is a deterministic preview from textual cues only.",
+      objectiveId: primaryObjectiveId,
+      affectedStudentRefs: explanationGapRefs,
+      confidence: Math.min(0.58 + explanationGapRefs.length / submissions.length / 2, 0.84),
+    });
+  }
+
+  const sequenceOverCauseRefs = textSubmissions
+    .filter((submission) => {
+      const sequenceLanguage = /first|next|then|after that|finally/.test(submission.normalizedText);
+      const causalLanguage = /because|caused|led to|resulted|therefore|so that/.test(submission.normalizedText);
+      return sequenceLanguage && !causalLanguage;
+    })
+    .map((submission) => submission.studentRef);
+
+  if (sequenceOverCauseRefs.length >= 2) {
+    patterns.push({
+      title: "Sequence language may be standing in for explanation",
+      description:
+        "Multiple submissions rely on event order more than causal explanation. This deterministic observation is intended as a lightweight teacher prompt, not a scored judgment.",
+      objectiveId: secondaryObjectiveId,
+      affectedStudentRefs: sequenceOverCauseRefs,
+      confidence: Math.min(0.56 + sequenceOverCauseRefs.length / submissions.length / 2, 0.8),
+    });
+  }
+
+  return patterns;
+}
+
 export function createMockAnalysisProvider(): AssignmentAnalysisProvider {
   return {
     async runAssignmentAnalysis({ assignment, submissions }) {
@@ -94,6 +169,16 @@ export function createMockAnalysisProvider(): AssignmentAnalysisProvider {
             affectedStudentRefs,
           };
         }),
+      };
+    },
+    async generateStructuredObservations(input) {
+      const patterns = createDeterministicObservationPatterns(input);
+
+      return {
+        assignmentId: input.assignment.id,
+        sourceAssignmentRef: input.assignment.sourceAssignmentRef,
+        sourceCourseRef: input.assignment.sourceCourseRef,
+        patterns,
       };
     },
   };

@@ -190,8 +190,37 @@ export function createMockLmsProvider(): LmsProvider {
     async listStudentSubmissions(assignmentId: string) {
       return mockSubmissionReferences.filter((item) => item.assignmentId === assignmentId);
     },
+    async getSubmissionAttachmentsForAssignment(_courseId: string, assignmentId: string, submissionRef: string) {
+      const submission = mockSubmissionReferences.find(
+        (item) => item.assignmentId === assignmentId && item.sourceSubmissionRef === submissionRef,
+      );
+
+      if (!submission?.textContent && !submission?.contentPreview) {
+        return [];
+      }
+
+      return [
+        {
+          id: `${submissionRef}-text`,
+          submissionRef,
+          title: "Mock response",
+          mimeType: "text/plain",
+          kind: "short_answer",
+          textContent: submission.textContent ?? submission.contentPreview,
+        },
+      ];
+    },
     async getSubmissionAttachments(submissionRef: string) {
       return mockSubmissionAttachments.filter((item) => item.submissionRef === submissionRef);
+    },
+    async readSubmissionAttachmentText(attachment: SubmissionAttachment) {
+      return {
+        textContent: attachment.textContent ?? "",
+        contentType: attachment.kind === "short_answer" ? "short_answer" : "plain_text",
+      };
+    },
+    async readSubmissionAttachmentBinary() {
+      throw new Error("Mock LMS does not expose binary attachment content.");
     },
     async getClasses() {
       return mockClasses;

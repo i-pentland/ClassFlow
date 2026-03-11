@@ -5,25 +5,34 @@ import { StudentWorkReviewPanel } from "@/components/embedded/student-work-revie
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getIframeLaunchContextFromLocation } from "@/features/iframe-context/iframe-context.service";
-import { classflowService } from "@/services/classflowService";
 import type { ResolvedAnalysisPattern, StudentWorkReviewPageData } from "@/types/view-models";
 
 export function AddonStudentWorkReviewPage() {
-  const { assignmentData, assignmentContextIssue, submissionReferences, submissionLoadIssue, selectedSubmission } =
-    useLoaderData() as StudentWorkReviewPageData;
+  const {
+    assignmentData,
+    assignmentContextIssue,
+    submissionReferences,
+    submissionLoadIssue,
+    submissionPreparationSummary,
+    observationPatterns,
+    observationIssue,
+    selectedSubmission,
+    debugState,
+  } = useLoaderData() as StudentWorkReviewPageData;
   const location = useLocation();
   const launchContext = getIframeLaunchContextFromLocation(location.pathname, location.search);
+  const hasStructuredObservationState = observationPatterns.length > 0 || Boolean(observationIssue);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [hasAnalyzed, setHasAnalyzed] = useState(false);
-  const [patterns, setPatterns] = useState<ResolvedAnalysisPattern[]>([]);
+  const [hasAnalyzed, setHasAnalyzed] = useState(hasStructuredObservationState);
+  const [patterns, setPatterns] = useState<ResolvedAnalysisPattern[]>(observationPatterns);
   const [acknowledgedPatternIds, setAcknowledgedPatternIds] = useState<string[]>([]);
 
   useEffect(() => {
     setIsAnalyzing(false);
-    setHasAnalyzed(false);
-    setPatterns([]);
+    setHasAnalyzed(hasStructuredObservationState);
+    setPatterns(observationPatterns);
     setAcknowledgedPatternIds([]);
-  }, [assignmentData?.assignment.id]);
+  }, [assignmentData?.assignment.id, hasStructuredObservationState, observationPatterns]);
 
   if (!assignmentData) {
     return (
@@ -37,27 +46,34 @@ export function AddonStudentWorkReviewPage() {
             </CardDescription>
           </CardHeader>
         </Card>
+        {import.meta.env.DEV && debugState ? (
+          <Card className="mt-4 border-dashed border-amber-300/80 bg-amber-50/70">
+            <CardHeader>
+              <CardTitle className="text-base">Debug: assignment lookup failed</CardTitle>
+              <CardDescription>
+                Provider: {debugState.providerName} · courseId: {debugState.courseId ?? "none"} · assignmentId:{" "}
+                {debugState.assignmentId ?? "none"}
+              </CardDescription>
+              {debugState.apiError ? <CardDescription>{debugState.apiError}</CardDescription> : null}
+            </CardHeader>
+          </Card>
+        ) : null}
       </section>
     );
   }
 
-  const { classRoom, assignment, targetedObjectives } = assignmentData;
-  const canAnalyze = submissionReferences.some((submission) => submission.contentType === "text");
+  const { assignment, targetedObjectives } = assignmentData;
+  const canAnalyze = false;
   const analysisNotice =
-    canAnalyze || submissionReferences.length === 0
-      ? null
-      : "Submission metadata is available, but raw submission text analysis is not implemented for this Google Classroom path yet.";
+    observationIssue ??
+    ((submissionPreparationSummary?.analyzableCount ?? 0) > 0
+      ? "Structured observations on this embedded surface are generated automatically from the transient analyzable submission set."
+      : submissionReferences.length === 0
+        ? null
+        : "Submission metadata is available, but no supported text content could be extracted transiently for analysis from this submission set yet.");
 
   const handleAnalyze = async () => {
-    if (!canAnalyze) {
-      return;
-    }
-
-    setIsAnalyzing(true);
-    const results = await classflowService.analyzeAssignment(classRoom.id, assignment.id, launchContext);
-    setPatterns(results);
-    setHasAnalyzed(true);
-    setIsAnalyzing(false);
+    return Promise.resolve();
   };
 
   const handleDismissPattern = (patternId: string) => {
@@ -100,12 +116,14 @@ export function AddonStudentWorkReviewPage() {
         submissionReferences={submissionReferences}
         selectedSubmission={selectedSubmission}
         submissionLoadIssue={submissionLoadIssue}
+        submissionPreparationSummary={submissionPreparationSummary}
         targetedObjectives={targetedObjectives}
         patterns={patterns}
         hasAnalyzed={hasAnalyzed}
         isAnalyzing={isAnalyzing}
         canAnalyze={canAnalyze}
-        analysisNotice={analysisNotice}
+        analysisNotice={observationIssue ?? analysisNotice}
+        debugState={debugState}
         onAnalyze={handleAnalyze}
         onDismissPattern={handleDismissPattern}
         acknowledgedPatternIds={acknowledgedPatternIds}

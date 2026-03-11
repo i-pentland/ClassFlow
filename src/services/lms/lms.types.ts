@@ -43,6 +43,7 @@ export interface SubmissionReference {
   contentType: "text" | "metadata";
   contentPreview: string;
   sourceSubmissionRef: string;
+  textContent?: string;
 }
 
 export interface SubmissionAttachment {
@@ -50,7 +51,10 @@ export interface SubmissionAttachment {
   submissionRef: string;
   title: string;
   mimeType: string;
+  kind: "drive_file" | "link" | "form" | "youtube" | "short_answer";
   url?: string;
+  driveFileId?: string;
+  textContent?: string;
 }
 
 export type LmsIframeType =

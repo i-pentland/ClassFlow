@@ -5,8 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { SubmissionReference } from "@/services/lms/lms.types";
+import type { SubmissionPreparationSummary } from "@/services/submissions/submission-extraction.types";
 import type { LearningObjective } from "@/types/domain";
-import type { ResolvedAnalysisPattern } from "@/types/view-models";
+import type { ResolvedAnalysisPattern, StudentWorkReviewDebugState } from "@/types/view-models";
 
 type StudentWorkReviewPanelProps = {
   assignmentTitle: string;
@@ -15,12 +16,14 @@ type StudentWorkReviewPanelProps = {
   submissionReferences: SubmissionReference[];
   selectedSubmission: SubmissionReference | null;
   submissionLoadIssue?: string | null;
+  submissionPreparationSummary?: SubmissionPreparationSummary | null;
   targetedObjectives: LearningObjective[];
   patterns: ResolvedAnalysisPattern[];
   hasAnalyzed: boolean;
   isAnalyzing: boolean;
   canAnalyze?: boolean;
   analysisNotice?: string | null;
+  debugState?: StudentWorkReviewDebugState | null;
   onAnalyze: () => Promise<void>;
   onDismissPattern: (patternId: string) => void;
   acknowledgedPatternIds: string[];
@@ -34,12 +37,14 @@ export function StudentWorkReviewPanel({
   submissionReferences,
   selectedSubmission,
   submissionLoadIssue,
+  submissionPreparationSummary = null,
   targetedObjectives,
   patterns,
   hasAnalyzed,
   isAnalyzing,
   canAnalyze = true,
   analysisNotice = null,
+  debugState = null,
   onAnalyze,
   onDismissPattern,
   acknowledgedPatternIds,
@@ -69,6 +74,26 @@ export function StudentWorkReviewPanel({
               <p className="mt-2 font-semibold">{submissionCount}</p>
             </div>
 
+            {submissionPreparationSummary ? (
+              <div className="rounded-[1.25rem] bg-secondary/40 p-4">
+                <p className="text-sm text-muted-foreground">Transient extraction readiness</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Analyzable</p>
+                    <p className="mt-1 font-semibold">{submissionPreparationSummary.analyzableCount}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Unsupported</p>
+                    <p className="mt-1 font-semibold">{submissionPreparationSummary.unsupportedCount}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Failed</p>
+                    <p className="mt-1 font-semibold">{submissionPreparationSummary.failedCount}</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             {selectedSubmission ? (
               <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50/70 p-4">
                 <p className="text-sm font-semibold text-amber-900">Current submission context</p>
@@ -81,6 +106,74 @@ export function StudentWorkReviewPanel({
             {submissionLoadIssue ? (
               <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50/70 p-4 text-sm leading-6 text-amber-900/80">
                 {submissionLoadIssue}
+              </div>
+            ) : null}
+
+            {import.meta.env.DEV && debugState ? (
+              <div className="rounded-[1.25rem] border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm leading-6 text-slate-700">
+                <p className="font-semibold text-slate-900">Debug: submission fetch state</p>
+                <p className="mt-2">
+                  {debugState.submissionFetchStatus === "empty"
+                    ? "No submissions exist for this assignment."
+                    : debugState.submissionFetchStatus === "failed"
+                      ? "Submission fetch failed."
+                      : debugState.submissionFetchStatus === "mapping_zero"
+                        ? "Submission mapping returned zero items."
+                        : debugState.submissionFetchStatus === "success"
+                          ? "Submission metadata loaded successfully."
+                          : "Submission fetch has not started."}
+                </p>
+                <p className="mt-2">
+                  courseId: {debugState.courseId ?? "none"} · assignmentId: {debugState.assignmentId ?? "none"}
+                </p>
+                <p>submissionId: {debugState.currentSubmissionId ?? "none"}</p>
+                <p>request made: {debugState.requestMade ? "yes" : "no"}</p>
+                <p>raw submissions returned: {debugState.rawSubmissionCount ?? "unknown"}</p>
+                <p>mapped submissions passed to view: {debugState.mappedSubmissionCount}</p>
+                <p>
+                  raw states:{" "}
+                  {Object.keys(debugState.rawSubmissionStateCounts).length > 0
+                    ? Object.entries(debugState.rawSubmissionStateCounts)
+                        .map(([state, count]) => `${state}:${count}`)
+                        .join(", ")
+                    : "none"}
+                </p>
+                <p>filtering applied: none</p>
+                {debugState.apiError ? <p className="mt-2 text-amber-900">API/error: {debugState.apiError}</p> : null}
+              </div>
+            ) : null}
+
+            {import.meta.env.DEV && submissionPreparationSummary ? (
+              <div className="rounded-[1.25rem] border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm leading-6 text-slate-700">
+                <p className="font-semibold text-slate-900">Debug: transient extraction state</p>
+                <div className="mt-3 space-y-3">
+                  {submissionPreparationSummary.items.map((item) => (
+                    <div key={item.submissionRef} className="rounded-lg border border-slate-200 bg-white/70 px-3 py-3">
+                      <p className="font-medium text-slate-900">
+                        {item.studentName} · {item.submissionRef}
+                      </p>
+                      <p className="mt-1">
+                        status: {item.status} · type: {item.contentType}
+                        {item.errorCategory ? ` · category: ${item.errorCategory}` : ""}
+                      </p>
+                      {item.reason ? <p className="mt-1 text-amber-900">reason: {item.reason}</p> : null}
+                      <p className="mt-1">token available: {item.tokenAvailable ? "yes" : "no"}</p>
+                      <p>attachments found: {item.attachmentCount ?? 0}</p>
+                      <p>
+                        detected attachments:{" "}
+                        {item.detectedAttachmentTypes && item.detectedAttachmentTypes.length > 0
+                          ? item.detectedAttachmentTypes.join(", ")
+                          : "none"}
+                      </p>
+                      <p>
+                        attempted extraction:{" "}
+                        {item.attemptedStrategies && item.attemptedStrategies.length > 0
+                          ? item.attemptedStrategies.join(", ")
+                          : "none"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
 
